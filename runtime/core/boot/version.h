@@ -64,6 +64,10 @@ typedef struct {
     int sdk_last_index;
     // DT_INIT_ARRAYSZ / 8 of each module, in load order (boot.c): a different count is a different build
     RtInitCount inits[RT_MAX_MODULES];
+    // mtf-recomp: a module the game loads itself with nn::ro::LoadModule (Mario Tennis Fever's engine, "basic"): the
+    // loader maps and links it at boot with the others, but its DT_INIT runs when the game loads it (ov_mtf.c)
+    const char *ro_module;
+    const char *nvn_module;    // mtf-recomp: the module nvn_ret is an offset of; NULL: main
 } RtVersion;
 
 const RtVersion *rt_version(void);                 // the row of the game code in use; fatal for a version not listed

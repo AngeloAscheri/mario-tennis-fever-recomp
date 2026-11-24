@@ -21,7 +21,8 @@ uint64_t hostfn_register_observer(const char *name, GuestFn fn, uint64_t origina
 enum { DT_NULL = 0, DT_PLTRELSZ = 2, DT_HASH = 4, DT_STRTAB = 5, DT_SYMTAB = 6, DT_RELA = 7, DT_RELASZ = 8,
        DT_INIT = 12, DT_FINI = 13, DT_JMPREL = 23, DT_INIT_ARRAY = 25, DT_FINI_ARRAY = 26, DT_INIT_ARRAYSZ = 27,
        DT_FINI_ARRAYSZ = 28, DT_RELRSZ = 0x23, DT_RELR = 0x24, DT_GNU_HASH = 0x6ffffef5 };
-enum { R_ABS64 = 257, R_GLOB_DAT = 1025, R_JUMP_SLOT = 1026, R_RELATIVE = 1027 };
+enum { R_ABS64 = 257, R_GLOB_DAT = 1025, R_JUMP_SLOT = 1026, R_RELATIVE = 1027, R_TLSDESC = 1031 };
+uint64_t ldr_tlsdesc_resolver(void);   // tlsdesc.c (mtf-recomp)
 enum { K_RELATIVE, K_ABS64, K_GLOB_DAT, K_JUMP_SLOT, K_COUNT };
 enum { STB_WEAK = 2, STT_FUNC = 2 };
 
@@ -121,8 +122,21 @@ static size_t lz4_decompress(const uint8_t *src, size_t srclen, uint8_t *dst, si
 
 typedef struct { uint32_t file_off, mem_off, size, csize; int compressed; } Seg;
 
+// mtf-recomp: an NRO (Mario Tennis Fever's engine, basic, rebuilt by tools/unpack_engine.py) is its own image:
+// segments at their file offsets, uncompressed; header at 0x10, segments (offset, size) at 0x20, .bss size at 0x38.
+static uint64_t nro_segments(const uint8_t *raw, size_t len, const char *name, Seg seg[3]) {
+    for (int i = 0; i < 3; i++) {
+        const uint32_t *s = (const uint32_t *)(raw + 0x20 + i * 8);
+        seg[i] = (Seg){s[0], s[0], s[1], s[1], 0};
+        if ((uint64_t)s[0] + s[1] > len) rt_fatal("loader: %s segment %d lies outside the file", name, i);
+    }
+    uint32_t bss = *(const uint32_t *)(raw + 0x38);
+    return ((uint64_t)seg[2].mem_off + seg[2].size + bss + 0xFFF) & ~0xFFFull;
+}
+
 static uint64_t nso_segments(const uint8_t *raw, size_t len, const char *name, Seg seg[3]) {
-    if (len < 0x100 || memcmp(raw, "NSO0", 4)) rt_fatal("loader: %s is not an NSO", name);
+    if (len >= 0x80 && !memcmp(raw + 0x10, "NRO0", 4)) return nro_segments(raw, len, name, seg);
+    if (len < 0x100 || memcmp(raw, "NSO0", 4)) rt_fatal("loader: %s is not an NSO or an NRO", name);
     uint32_t flags = *(const uint32_t *)(raw + 0xC);
     for (int i = 0; i < 3; i++) {
         memcpy(&seg[i], raw + 0x10 + i * 0x10, 12);
@@ -388,7 +402,14 @@ static void relocate_table(Mod *m, const Elf64Rela *r, uint64_t n) {
             rt_fatal("loader: %s relocation %llu writes +%#llx, outside the data segment", m->pub.name,
                      (unsigned long long)i, (unsigned long long)r[i].off);
         uint64_t v;
-        if (type == R_RELATIVE) {
+        if (type == R_TLSDESC) {   // mtf-recomp: resolver and argument, tlsdesc.c
+            if (si != 0) rt_fatal("loader: %s TLSDESC %llu names symbol %u; only the module's own block is handled",
+                                  m->pub.name, (unsigned long long)i, si);
+            if (r[i].off > m->pub.size - 16)
+                rt_fatal("loader: %s TLSDESC %llu writes past the image", m->pub.name, (unsigned long long)i);
+            ST64(base + r[i].off + 8, (uint64_t)r[i].addend);
+            v = ldr_tlsdesc_resolver();
+        } else if (type == R_RELATIVE) {
             m->kinds[K_RELATIVE]++;
             v = base + (uint64_t)r[i].addend;
         } else {

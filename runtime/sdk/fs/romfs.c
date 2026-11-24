@@ -438,7 +438,8 @@ typedef struct { char path[4096]; size_t len, rel; } LooseWalk;   // rel: where 
 static int loose_entry(const char *name, int kind, uint64_t size, void *ctx) {
     LooseWalk *w = ctx;
     size_t n = strlen(name), len = w->len;
-    if (len < w->rel && *name == '.') return 1;   // the dump tool's .listing files are not game files
+    // the dump tool's .listing files are not game files; other dot names are (mtf-recomp: the RomFS's .nrr/nrr.nrr)
+    if (!strcmp(name, ".listing")) return 1;
     need(len + 1 + n < sizeof w->path, "RomFS path");
     w->path[len] = '/';
     memcpy(w->path + len + 1, name, n + 1);
@@ -467,7 +468,9 @@ static int loose_visit(const char *path, const struct stat *st, int type, struct
     if (type != FTW_F) return 0;
     const char *rel = path + loose_root_len;
     while (*rel == '/') rel++;
-    if (*rel == '.') return 0;   // the dump tool's .listing files are not game files
+    // the dump tool's .listing files are not game files; other dot names are (mtf-recomp: the RomFS's .nrr/nrr.nrr)
+    const char *base = strrchr(rel, '/');
+    if (!strcmp(base ? base + 1 : rel, ".listing")) return 0;
     loose_add(rel, (uint64_t)st->st_size);
     return 0;
 }

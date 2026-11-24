@@ -121,6 +121,25 @@ static const RtVersion versions[] = {
         .sdk_last_index = 0x2da,
         .inits = {{"main", 2960}, {"subsdk0", 0}, {"subsdk1", 4}, {"sdk", 88}},
     },
+    // mtf-recomp: Mario Tennis Fever. Every MKW address stays 0 (its feature is off) until found in this game; the
+    // engine `basic` is the NRO nxboot loads with nn::ro::LoadModule (tools/unpack_engine.py). 24/11/2026.
+    {
+        .number = 1,   // the base game (title version 0; 0 would read as unset)
+        .display = "base",
+        .output_lines = 1080,
+        .nvn_module = "basic",   // nvn_ret not measured yet: --boot names the address it sees
+        .inits = {{"main", 7}, {"basic", 197}, {"sdk", 91}},
+        .ro_module = "basic",
+    },
+    {
+        .number = 327680,
+        .display = "327680",
+        .output_lines = 1080,
+        .nvn_module = "basic",
+        .nvn_ret = 0x2895c,   // the engine's first nvnBootstrapLoader("nvnDeviceGetProcAddress"), bl at basic+0x28958
+        .inits = {{"main", 7}, {"basic", 197}, {"sdk", 91}},
+        .ro_module = "basic",
+    },
 };
 
 const RtVersion *rt_version(void) {

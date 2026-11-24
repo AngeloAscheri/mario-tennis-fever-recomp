@@ -499,3 +499,31 @@ void kern_signal_system_event(uint64_t ev) {
     }
     kern_event_signal(wh);
 }
+
+// mtf-recomp: what a call to a console service does to the threads around it. On the console an IPC round trip blocks
+// its caller, so every thread already started gets to run first; the SDK calls replaced by name here return at once.
+// Mario Tennis Fever's nxboot relies on it: its six unpacking threads (priority 47, below its own 44) read their
+// arguments from nxboot's stack, which it reuses after nn::fs::SetAllocator, nn::ro::Initialize and
+// nn::fs::QueryMountRomCacheSize, three service calls (main+0x9e0..0x9f0). The caller gives up its core until every
+// started thread has blocked at least once (or exited), at most max_ns; returns how many still had not.
+int kern_settle(uint64_t max_ns) {
+    RtThread *self = tcur;
+    lock();
+    if (self) core_put(self);
+    unlock();
+    uint64_t until = kern_now_ns() + max_ns;
+    int pending;
+    for (;;) {
+        pending = 0;
+        lock();
+        for (RtThread *t = g_all; t; t = t->all)
+            if (t != self && t->started && !t->exited && !t->nblk) pending++;
+        unlock();
+        if (!pending || kern_now_ns() > until) break;
+        plat_sleep_ns(20000);
+    }
+    lock();
+    if (self) core_take(self);
+    unlock();
+    return pending;
+}

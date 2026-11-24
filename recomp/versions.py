@@ -24,14 +24,14 @@ ROOT = Path(__file__).resolve().parents[1]
 @dataclass(frozen=True)
 class Version:
     name: str  # "base", or the update's title version
-    number: int  # title version: 0 for the base game, 327680 for its update
+    number: int  # RtGame.version (runtime/core/boot/version.c): the title version, but 1 for the base game (0 reads as unset)
     main_build_id: str  # first 8 bytes of the NSO build id of exefs/main, hex
     patches: Path  # recomp/patches-*.txt for this executable
 
 
 VERSIONS = (
     # Both share the same sdk (build id 32a9ac1480a6f0e9, NintendoSDK 20.5.17). 23/11/2026.
-    Version("base", 0, "aaf8a6ef6b7e3c78", ROOT / "recomp/patches-mtf-base.txt"),
+    Version("base", 1, "aaf8a6ef6b7e3c78", ROOT / "recomp/patches-mtf-base.txt"),
     Version("327680", 327680, "104bce6874603701", ROOT / "recomp/patches-mtf-327680.txt"),
 )
 

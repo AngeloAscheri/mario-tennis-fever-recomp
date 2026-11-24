@@ -75,6 +75,11 @@ static void cb_module_inits(Cpu *c) {
         const RtLoaded *m = module_named(expected_inits[k].name);
         uint64_t entries = m->init_array_size / 8;
         if (!m->init) rt_fatal("boot: %s has no DT_INIT", m->name);
+        const char *ro = rt_version()->ro_module;
+        if (ro && !strcmp(m->name, ro)) {   // mtf-recomp: at nn::ro::LoadModule, rt_boot_ro_init
+            rt_log("boot: %s DT_INIT waits for nn::ro::LoadModule", m->name);
+            continue;
+        }
         rt_log("boot: ENTER %s DT_INIT (%llu init_array entries)", m->name, (unsigned long long)entries);
         rt_call(c, m->init, 0);
         uint32_t state = ctor_state(m);
@@ -87,6 +92,19 @@ static void cb_module_inits(Cpu *c) {
     if (nmods != ldr_count())
         rt_fatal("boot: %d modules loaded, game version %s has %d", ldr_count(), rt_version()->display, nmods);
     plat_xchg32(&inits_done, 1);
+}
+
+// mtf-recomp: the DT_INIT of the module nn::ro::LoadModule brings in (RtVersion.ro_module), once, as ro runs it.
+void rt_boot_ro_init(Cpu *c, const char *name) {
+    static int32_t done;
+    if (plat_xchg32(&done, 1)) rt_fatal("boot: nn::ro::LoadModule of %s a second time", name);
+    const RtLoaded *m = module_named(name);
+    rt_log("boot: ENTER %s DT_INIT from nn::ro::LoadModule (%llu init_array entries)", m->name,
+           (unsigned long long)(m->init_array_size / 8));
+    rt_call(c, m->init, 0);
+    uint32_t state = ctor_state(m);
+    rt_logf("boot: DT_INIT %s state=%u\n", m->name, state);
+    if (state != CTOR_DONE) rt_fatal("boot: %s DT_INIT left its constructor flag at %u, not 2", m->name, state);
 }
 
 static void cb_module_finis(Cpu *c) {
@@ -103,7 +121,6 @@ static void stats_line(void) {
 
 void rt_boot_event(const char *what, Cpu *c, const char *detail) {
     char at[128];
-    const RtLoaded *main_mod = module_named("main");
     uint64_t ret = c->x[30];
     caller(c, at, sizeof at);
     if (!strcmp(what, "checkpoint")) {
@@ -114,12 +131,14 @@ void rt_boot_event(const char *what, Cpu *c, const char *detail) {
     }
     if (!strcmp(what, "nvn")) {
         uint64_t nvn_ret = rt_version()->nvn_ret;
-        if (ret != main_mod->base + nvn_ret)
-            rt_fatal("boot: first NVN call %s(\"%s\") from %s, expected main+%#llx", "nvnBootstrapLoader", detail, at,
-                     (unsigned long long)nvn_ret);
+        const char *nvn_name = rt_version()->nvn_module ? rt_version()->nvn_module : "main";
+        const RtLoaded *nvn_mod = module_named(nvn_name);   // mtf-recomp: Mario Tennis Fever's is its engine's
+        if (ret != nvn_mod->base + nvn_ret)
+            rt_fatal("boot: first NVN call %s(\"%s\") from %s, expected %s+%#llx", "nvnBootstrapLoader", detail, at,
+                     nvn_name, (unsigned long long)nvn_ret);
         if (!plat_cas32(&inits_done, 0, 0)) rt_fatal("boot: first NVN call before DT_INIT");
-        rt_logf("boot: first NVN call nvnBootstrapLoader(\"%s\") from main+%#llx\n", detail,
-               (unsigned long long)(ret - main_mod->base));
+        rt_logf("boot: first NVN call nvnBootstrapLoader(\"%s\") from %s+%#llx\n", detail, nvn_name,
+               (unsigned long long)(ret - nvn_mod->base));
         if (rt_config()->seconds) return;   // --seconds: the run goes on into the world
         if (rt_trace & RT_TRACE_HOSTCALL) hostfn_report();
         stats_line();
