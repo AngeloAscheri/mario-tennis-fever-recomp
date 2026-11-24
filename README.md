@@ -63,7 +63,11 @@ uv run tools/inspect_dump.py <dump>/exefs
 This is the best moment to join: the problems are well bounded and nothing is decided yet. Each open problem has its
 own issue; say in it that you are on it, and keep a pull request to one topic.
 
-**Reverse engineering** (the most useful right now):
+**New to this, or working with an AI assistant?** Start with [docs/first-steps.md](docs/first-steps.md)
+([español](docs/i18n/primeros-pasos.es.md)): the tools say where the game stopped and what to do about it, and the
+skills in `.claude/skills/` walk an assistant through each kind of task.
+
+**Reverse engineering**:
 
 - [#2](../../issues/2) **The RomFS archive.** The whole RomFS is one 7.8 GB file, `42`, starting with the magic `CRA.`. Its index format
   matters for the file system host and for modding later.
@@ -86,6 +90,7 @@ Linux, Python 3.12+ and [uv](https://docs.astral.sh/uv/). With a decrypted ExeFS
 
 ```
 git config core.hooksPath tools/git          # the content guard, once
+uv run tools/setup.py <dump folder>          # all the steps below in one, then: uv run tools/run/boot.py
 uv sync
 uv run recomp/versions.py <exefs>            # which version you have
 uv run tools/unpack_engine.py <exefs>        # rebuilds the engine into build/, writes build/modules-<version>/

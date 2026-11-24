@@ -4,7 +4,7 @@
 <!-- Closes #... -->
 
 ### Tested
-<!-- OS, GPU, what you checked (a lift, a run, a tool output). "Not tested" is a valid answer. -->
+<!-- OS, GPU, what you checked. For a runtime change, the stop tools/run/boot.py reported before and after. "Not tested" is a valid answer. -->
 
 ### Checklist
 <!-- Rules behind each item: CONTRIBUTING.md -->

@@ -4,6 +4,13 @@ Thanks for wanting to help. Not sure where to start? [docs/roadmap.md](docs/road
 order, and issues labelled `good first issue` are the small ones. Issues and discussions can be in English or Spanish;
 code, comments and commit messages are in English.
 
+## New here? Using AI?
+
+That is the expected way in. [docs/first-steps.md](docs/first-steps.md) ([español](docs/i18n/primeros-pasos.es.md))
+takes you from zero to your first fix: two commands to set up from your dump, one to run the game to its current stop
+with a plain explanation of what to do next, and skills for Claude Code (`.claude/skills/`) that walk an assistant
+through each kind of task. Most stops are one small replacement function.
+
 ## How work is shared
 
 1. **Pick an issue**, or open one for what you want to do. Say in it that you are on it; a maintainer adds the

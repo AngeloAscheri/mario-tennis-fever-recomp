@@ -14,6 +14,11 @@ body:
     attributes:
       label: Context
       description: Roadmap phase, related findings in docs/research.md, upstream code to look at (mkw-recomp file and function).
+  - type: textarea
+    id: prompt
+    attributes:
+      label: Prompt for your AI assistant
+      description: A ready text a newcomer can paste into Claude Code or another assistant to start (which skill, which files, how to check).
   - type: checkboxes
     id: rules
     attributes:
