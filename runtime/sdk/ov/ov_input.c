@@ -127,6 +127,47 @@ static void ov_states_full_key(Cpu *c) { npad_states(c, STYLE_FULL_KEY); }
 static void ov_states_handheld(Cpu *c) { npad_states(c, STYLE_HANDHELD); }
 static void ov_states_joycon(Cpu *c) { npad_states(c, 0); }
 
+// mtf-recomp: Mario Tennis Fever's calls that Mario Kart World does not make.
+// void GetNpadState(<State> *out, const NpadIdType &id): GetNpadStates with a count of 1.
+static void npad_state(Cpu *c, uint32_t want) {
+    c->x[2] = c->x[1];
+    c->x[1] = 1;
+    npad_states(c, want);
+}
+static void ov_state_full_key(Cpu *c) { npad_state(c, STYLE_FULL_KEY); }
+static void ov_state_handheld(Cpu *c) { npad_state(c, STYLE_HANDHELD); }
+static void ov_state_joycon(Cpu *c) { npad_state(c, 0); }
+
+// NpadStyleSet GetSupportedNpadStyleSet(): what SetSupportedNpadStyleSet last set
+static void ov_supported_styles_get(Cpu *c) {
+    plat_mutex_lock_shared(&lock);
+    uint32_t v = styles;
+    plat_mutex_unlock_shared(&lock);
+    ret_x(c, v);
+}
+
+// Result GetNpadControllerColor(NpadControllerColor *out[, NpadControllerColor *right], const NpadIdType &id): a
+// controller's body and button colours (two RGBA words); a dark grey Pro Controller's for every controller.
+static void put_color(uint64_t p) {
+    if (!p) return;
+    ST32(p, 0xff2d2d2du);
+    ST32(p + 4, 0xffe6e6e6u);
+}
+static void ov_controller_color(Cpu *c) {
+    put_color(arg_x(c, 0));
+    ret_x(c, 0);
+}
+static void ov_controller_colors(Cpu *c) {
+    put_color(arg_x(c, 0));
+    put_color(arg_x(c, 1));
+    ret_x(c, 0);
+}
+
+// Settings of the hid service that change nothing on the host: handheld activation, Joy-Con assignment (the host's
+// controllers are full key), gyroscope drift, keyboard and mouse bring-up, the strap guide applet.
+static void ov_hid_nothing(Cpu *c) { (void)c; }
+static void ov_hid_ok(Cpu *c) { ret_x(c, 0); }
+
 // void SetNpadJoyHoldType(NpadJoyHoldType type)
 static void ov_hold_type(Cpu *c) {
     int64_t t = (int32_t)arg_x(c, 0);
@@ -600,3 +641,23 @@ HOST_OVERRIDE("_ZN2nn3hid16GetNmouseTypeSetEPNS_4util10BitFlagSetILi32ENS0_10Nmo
 HOST_OVERRIDE("_ZN2nn3hid19EnableNmousePointerENS0_12NmouseHandleEb", ov_mouse_nothing);
 HOST_OVERRIDE("_ZN2nn3hid22SetNmousePointerRangesEii", ov_mouse_nothing);
 HOST_OVERRIDE("_ZN2nn3hid24SetNmousePointerPositionENS0_12NmouseHandleEii", ov_mouse_nothing);
+
+// mtf-recomp
+HOST_OVERRIDE("_ZN2nn3hid12GetNpadStateEPNS0_16NpadFullKeyStateERKj", ov_state_full_key);
+HOST_OVERRIDE("_ZN2nn3hid12GetNpadStateEPNS0_17NpadHandheldStateERKj", ov_state_handheld);
+HOST_OVERRIDE("_ZN2nn3hid12GetNpadStateEPNS0_16NpadJoyDualStateERKj", ov_state_joycon);
+HOST_OVERRIDE("_ZN2nn3hid12GetNpadStateEPNS0_16NpadJoyLeftStateERKj", ov_state_joycon);
+HOST_OVERRIDE("_ZN2nn3hid12GetNpadStateEPNS0_17NpadJoyRightStateERKj", ov_state_joycon);
+HOST_OVERRIDE("_ZN2nn3hid24GetSupportedNpadStyleSetEv", ov_supported_styles_get);
+HOST_OVERRIDE("_ZN2nn3hid22GetNpadControllerColorEPNS0_19NpadControllerColorERKj", ov_controller_color);
+HOST_OVERRIDE("_ZN2nn3hid22GetNpadControllerColorEPNS0_19NpadControllerColorES2_RKj", ov_controller_colors);
+HOST_OVERRIDE("_ZN2nn3hid29SetNpadHandheldActivationModeENS0_26NpadHandheldActivationModeE", ov_hid_nothing);
+HOST_OVERRIDE("_ZN2nn3hid30SetNpadJoyAssignmentModeSingleERKjNS0_17NpadJoyDeviceTypeE", ov_hid_nothing);
+HOST_OVERRIDE("_ZN2nn3hid30SetNpadJoyAssignmentModeSingleERKj", ov_hid_nothing);
+HOST_OVERRIDE("_ZN2nn3hid30SetNpadJoyAssignmentModeSingleEPjRKjNS0_17NpadJoyDeviceTypeE", ov_hid_ok);   // bool: none
+HOST_OVERRIDE("_ZN2nn3hid28SetNpadJoyAssignmentModeDualERKj", ov_hid_nothing);
+HOST_OVERRIDE("_ZN2nn3hid23MergeSingleJoyAsDualJoyERKjS2_", ov_hid_ok);
+HOST_OVERRIDE("_ZN2nn3hid25SetGyroscopeZeroDriftModeERKNS0_19SixAxisSensorHandleERKNS0_22GyroscopeZeroDriftModeE", ov_hid_nothing);
+HOST_OVERRIDE("_ZN2nn3hid18InitializeKeyboardEv", ov_hid_nothing);
+HOST_OVERRIDE("_ZN2nn3hid15InitializeMouseEv", ov_hid_nothing);
+HOST_OVERRIDE("_ZN2nn3hid24ShowControllerStrapGuideEv", ov_hid_nothing);

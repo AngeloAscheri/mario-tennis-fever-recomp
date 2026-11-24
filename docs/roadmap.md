@@ -19,14 +19,16 @@ The open work, in order. Each item becomes one or more issues; the issue says wh
 
 ## F1 — OS: boot on the Horizon host
 
-- [ ] [#3](../../../issues/3) Bring mkw-recomp's `runtime/` over (core, cpu, sdk, platform), strip what is Mario Kart World's own.
-- [ ] Load `nxboot` + `basic` + `sdk` as the console would; `nn::ro::LoadModule` answers with the lifted `basic`
-      (the 14 imports neither module exports are weak and stay null).
-- [ ] RomFS host serving `42`; save data; reach `nnMain` of the engine.
+- [x] mkw-recomp's `runtime/` imported unchanged (dd30104), then adapted (the list: `runtime/MTF.md`).
+- [x] Load `nxboot` + `basic` + `sdk`; `nn::ro::LoadModule` answers with the lifted `basic` and runs its constructors.
+- [x] RomFS host serving `42` and `.nrr`; save data; the engine's entry runs; `build/mkw --boot` passes.
+- [ ] [#3](../../../issues/3) The engine's font set-up (a null font object at `basic+0xaef858`, with the stand-in fonts
+      of `tools/make_shared_fonts.py`), then the next SDK calls Mario Kart World never made.
 
 ## F2 — NVN2
 
-- [ ] mkw-recomp's NVN2 front end; list the NVN2 entry points Tennis asks for that MKW never did.
+- [ ] The NVN2 entry points Tennis asks for that MKW never did: the `nvnProgramBuilder*` family so far (null for now).
+- [ ] The NVN2 driver's proc table in Tennis's `sdk` (`version.c` `sdk_name_pool` and friends, 0 for now).
 
 ## F3 — Shaders
 

@@ -32,14 +32,14 @@ needs from us is mostly the game-specific part.
 
 ## Status
 
-**Early research: the whole game now lifts.** Nothing runs yet. Updated 24 November 2026.
+**It boots.** No picture yet: the engine starts, reads its data and sets up the GPU, then stops at its font set-up. Updated 24 November 2026.
 
 | Phase | | State |
 | --- | --- | --- |
 | F0 CPU: lift the code | ✅ | `main`, the engine `basic` and `sdk`: 110,000 functions lift with **no unsupported instruction**; 1,541 of 1,542 instruction shapes of the game agree with Unicorn. |
 | F0b Unpack the engine | ✅ | `tools/unpack_engine.py` rebuilds the engine from your `main`; its SHA-256 matches the one the game itself registers. |
-| F1 OS | ⏳ | Boot on mkw-recomp's Horizon host. |
-| F2 NVN2 | ⏳ | mkw-recomp's NVN2 front end. |
+| F1 OS | 🚧 | On mkw-recomp's runtime, `build/mkw --boot` passes (876 SVCs, 25 threads): nxboot unpacks the engine in the guest (byte for byte the offline copy), the engine's constructors run, it reads its archive, mounts its save, initializes controllers, rumble, motion and audio. |
+| F2 NVN2 | 🚧 | The device comes up; the run stops in the engine's font set-up, before the first frame. |
 | F3 Shaders | ⏳ | Ampere SM86 → SPIR-V, as in mkw-recomp. |
 | F4 Vulkan | ⏳ | First picture. |
 | F5 Playable | ⏳ | Input, audio, movies, saves. |
@@ -70,7 +70,7 @@ own issue; say in it that you are on it, and keep a pull request to one topic.
 
 **Porting** (the engine lifts now):
 
-- [#3](../../issues/3) Bring mkw-recomp's `runtime/` over, make it build, and boot to the first SVC.
+- [#3](../../issues/3) From the font set-up to the first frame: the next SDK calls Tennis makes that Mario Kart World does not.
 - [#5](../../issues/5) Port mkw-recomp's spin-wait finder and fill the patch tables (good first issue).
 - Where the engine keeps its shaders, and how many NVN2 entry points it uses that Mario Kart World does not.
 
@@ -91,7 +91,14 @@ uv run recomp/versions.py <exefs>            # which version you have
 uv run tools/unpack_engine.py <exefs>        # rebuilds the engine into build/, writes build/modules-<version>/
 uv run python recomp/gen.py --exefs build/modules-<version>   # lifts main + basic + sdk to C (seconds)
 uv run pytest -q                             # the tests, no game needed
+uv run tools/make_shared_fonts.py            # stand-in system fonts from a free font, in build/shared-fonts/
+uv run tools/build/build.py --exefs build/modules-<version>    # the runtime and the game code: build/mkw
+build/mkw --exefs build/modules-<version> --romfs <dump>/romfs --boot
 ```
+
+The runtime build needs what mkw-recomp's does: `clang`, `lld`, `ninja`, SDL3, Opus, libvpx, zstd, xxHash, the Vulkan
+headers and VMA 3.4.0 in `scratchpad/vma/` ([tools/build/README.md](tools/build/README.md)); a Fedora toolbox or
+distrobox with those packages works.
 
 Only already-decrypted dumps (ExeFS and RomFS folders) are supported. Formats that need console keys (NSP, XCI, NCA)
 are not, and code that asks for keys is not accepted.
