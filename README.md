@@ -32,15 +32,15 @@ needs from us is mostly the game-specific part.
 
 ## Status
 
-**It boots.** No picture yet: the engine starts, reads its data and sets up the GPU, then stops at its font set-up. Updated 24 November 2026.
+**It runs, without a picture.** The engine boots and its main loop presents frames at 60 fps, but every draw is skipped: the game's shaders are not translated yet (F3). Updated 24 November 2026.
 
 | Phase | | State |
 | --- | --- | --- |
 | F0 CPU: lift the code | ✅ | `main`, the engine `basic` and `sdk`: 110,000 functions lift with **no unsupported instruction**; 1,541 of 1,542 instruction shapes of the game agree with Unicorn. |
 | F0b Unpack the engine | ✅ | `tools/unpack_engine.py` rebuilds the engine from your `main`; its SHA-256 matches the one the game itself registers. |
 | F1 OS | 🚧 | On mkw-recomp's runtime, `build/mkw --boot` passes (876 SVCs, 25 threads): nxboot unpacks the engine in the guest (byte for byte the offline copy), the engine's constructors run, it reads its archive, mounts its save, initializes controllers, rumble, motion and audio. |
-| F2 NVN2 | 🚧 | The device comes up; the run stops in the engine's font set-up, before the first frame. |
-| F3 Shaders | ⏳ | Ampere SM86 → SPIR-V, as in mkw-recomp. |
+| F2 NVN2 | 🚧 | The device, fonts and command buffers work; 20 s runs end cleanly at 60 fps (1,776 frames in 29.6 s). |
+| F3 Shaders | ⏳ | **Next.** Every draw is skipped: "no prepared SPIR-V". mkw-recomp's SM86 translator (`sm86/`, `tools/shaders/`) and where Tennis keeps its shaders. |
 | F4 Vulkan | ⏳ | First picture. |
 | F5 Playable | ⏳ | Input, audio, movies, saves. |
 

@@ -449,6 +449,11 @@ NVN_API(nvnCommandBufferDownsample) {
 }
 // void nvnCommandBufferSetCopyRowStride(NVNcommandBuffer *cmd, ptrdiff_t stride)
 NVN_API(nvnCommandBufferSetCopyRowStride) { REC(cmd_of(c), OP_COPY_STRIDE, p_copy_stride)->stride = (int64_t)arg_x(c, 1); }
+// void nvnCommandBufferSetCopyImageStride(NVNcommandBuffer *cmd, ptrdiff_t stride) (mtf-recomp: Mario Tennis Fever sets
+// it): the bytes between layers or slices of the buffer side of later buffer <-> texture copies; 0 packs them
+NVN_API(nvnCommandBufferSetCopyImageStride) {
+    REC(cmd_of(c), OP_COPY_IMAGE_STRIDE, p_copy_stride)->stride = (int64_t)arg_x(c, 1);
+}
 // void nvnCommandBufferSetBlendColor(NVNcommandBuffer *cmd, const float *rgba)
 NVN_API(nvnCommandBufferSetBlendColor) { memcpy(REC(cmd_of(c), OP_BLEND_COLOR, p_blend_color)->rgba, arg_p(c, 1), 16); }
 // void nvnCommandBufferSetAlphaRef(NVNcommandBuffer *cmd, float ref): the alpha test's reference (spirv_alpha_test)

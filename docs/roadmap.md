@@ -22,8 +22,8 @@ The open work, in order. Each item becomes one or more issues; the issue says wh
 - [x] mkw-recomp's `runtime/` imported unchanged (dd30104), then adapted (the list: `runtime/MTF.md`).
 - [x] Load `nxboot` + `basic` + `sdk`; `nn::ro::LoadModule` answers with the lifted `basic` and runs its constructors.
 - [x] RomFS host serving `42` and `.nrr`; save data; the engine's entry runs; `build/mkw --boot` passes.
-- [ ] [#3](../../../issues/3) The engine's font set-up (a null font object at `basic+0xaef858`, with the stand-in fonts
-      of `tools/make_shared_fonts.py`), then the next SDK calls Mario Kart World never made.
+- [x] [#3](../../../issues/3) The engine's font set-up (the shared fonts are served decoded, as the console does), nn::oe's
+      message queue and display resolution, the profile image: a 20 s run ends cleanly, presenting 60 fps.
 
 ## F2 — NVN2
 
@@ -32,7 +32,8 @@ The open work, in order. Each item becomes one or more issues; the issue says wh
 
 ## F3 — Shaders
 
-- [ ] Find where the game keeps its shaders (inside `42`?), translate SM86 → SPIR-V with mkw-recomp's `sm86/`.
+- [ ] **Next:** every draw is skipped ("no prepared SPIR-V"). Bring mkw-recomp's `sm86/` translator and `tools/shaders/`,
+      find where Tennis keeps its shaders (inside `42`, or only as NVN programs at run time).
 
 ## F4 — First picture
 

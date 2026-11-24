@@ -559,7 +559,14 @@ static int buffer_side(const VkExec *ex, const Sub *s, uint64_t addr, uint64_t *
                   (unsigned long long)row, wb, s->bpb);
         return 0;
     }
-    uint64_t img = row * hb;
+    // mtf-recomp: OP_COPY_IMAGE_STRIDE, the bytes between layers (0: packed). Vulkan says it in rows
+    // (bufferImageHeight), so it must be a whole number of rows of at least the copy's height.
+    uint64_t img = ex->copy_image_stride > 0 ? (uint64_t)ex->copy_image_stride : row * hb;
+    if (img % row || img < row * hb) {
+        warn_once(W_REGION, "buffer copy image stride %llu is not whole rows of %llu bytes, %u high: skipped",
+                  (unsigned long long)img, (unsigned long long)row, hb);
+        return 0;
+    }
     *size = img * (s->nz - 1) + row * (hb - 1) + (uint64_t)wb * (uint64_t)s->bpb;
     VkMemSpan m;
     if (!addr || !vk_mem_resolve(addr, *size, &m) || m.avail < *size) {
@@ -570,7 +577,7 @@ static int buffer_side(const VkExec *ex, const Sub *s, uint64_t addr, uint64_t *
     VK_MEM_PICK(m);
     *span = m;
     *c = (VkBufferImageCopy){.bufferOffset = m.offset, .bufferRowLength = (uint32_t)(row / (uint64_t)s->bpb) * (uint32_t)s->bw,
-                             .bufferImageHeight = hb * (uint32_t)s->bh, .imageSubresource = sub_layers(s),
+                             .bufferImageHeight = (uint32_t)(img / row) * (uint32_t)s->bh, .imageSubresource = sub_layers(s),
                              .imageOffset = sub_offset(s), .imageExtent = sub_extent_blocks(s)};
     return 1;
 }

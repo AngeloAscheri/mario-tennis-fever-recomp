@@ -75,6 +75,7 @@ typedef struct VkExec {
     float blend_color[4];                // OP_BLEND_COLOR
     float alpha_ref;                     // OP_ALPHA_REF: the support buffer's first float when the alpha test is on
     int64_t copy_stride;                 // OP_COPY_STRIDE: row stride of buffer <-> texture copies (vk_exec_xfer.c)
+    int64_t copy_image_stride;           // OP_COPY_IMAGE_STRIDE (mtf-recomp): bytes between their layers or slices
     const dpool_t *tex_pool, *samp_pool; // OP_SET_TEX_POOL, OP_SET_SAMP_POOL
     // Pipeline inputs. vk_exec.c writes depth_clamp (OP_DEPTH_CLAMP), raster_discard (OP_RASTER_DISCARD) and, at pass
     // begin, color_fmt, depth_fmt and samples; vk_exec_draw.c owns every other field (shaders, prim, y_flip, state

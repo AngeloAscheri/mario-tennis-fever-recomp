@@ -12,6 +12,8 @@ Each one says `mtf-recomp` in a comment where it is.
 | `core/kernel/kernel.c`, `core/base/host.h` | `kern_settle`: a replaced service call lets started threads run first | nxboot's unpacking threads read their arguments from its stack, which it reuses after three service calls |
 | `sdk/fs/romfs.c` | Only the dump tool's `.listing` files are skipped, not every dot name | The RomFS's `.nrr/nrr.nrr` |
 | `sdk/ov/ov_mtf.c` | New: nxboot's nn::fs and nn::ro calls, offline nn::friends | Calls Mario Kart World never makes |
+| `sdk/ov/ov_system.c` | Shared fonts decoded as the pl service keeps them (plain sfnt after the 8-byte header); oe's non-blocking message queue, its event, the default display resolution and its change event; no profile image | The engine passes the font's address straight to nn::fontll, which refused the encoded words (error 0x193). **Worth checking in mkw-recomp too**: its Chinese and Korean text reads the same fonts |
+| `gfx/nvn/api/nvn_api_state.c`, `nvn_obj.h`, `nvn_api_cmd.c`, `gfx/vk/exec/vk_exec*.c`, `vk_exec_xfer.c` | `nvnCommandBufferSetCopyImageStride`: a new op (appended, so older captures keep their numbers) and the buffer side's layer stride | Tennis sets it |
 | `sdk/ov/ov_input.c` | GetNpadState (one state), controller colours, hid settings that change nothing on the host | Same |
 
 Names stay mkw-recomp's (`MKW_*` switches, `build/mkw`), so fixes can still travel both ways.

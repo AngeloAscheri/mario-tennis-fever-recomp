@@ -32,6 +32,13 @@ def test_explain_ipc(tmp_path, capsys):
     assert "_ZN2nn3hid29SetNpadHandheldActivationMode" in out and "ov_mtf.c" in out
 
 
+def test_explain_nvn(tmp_path, capsys):
+    log = tmp_path / "boot.log"
+    log.write_text("FATAL: NVN nvnCommandBufferSetCopyImageStride is not implemented\n")
+    assert boot.explain(log) == 1
+    assert "runtime/gfx/nvn/api/" in capsys.readouterr().out
+
+
 def test_explain_clean_run(tmp_path, capsys):
     log = tmp_path / "boot.log"
     log.write_text("boot: first NVN call nvnBootstrapLoader(\"x\") from basic+0x2895c\nboot: passed (1 SVCs)\n")

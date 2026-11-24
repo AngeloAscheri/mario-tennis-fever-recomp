@@ -77,11 +77,21 @@ def explain(log: Path) -> int:
               "family in runtime/sdk/ov/), returning what the console would. Step by step: the fix-sdk-call skill,\n"
               ".claude/skills/fix-sdk-call/SKILL.md.")
         return 1
+    nvn = re.match(r"FATAL: NVN (nvn\w+) is not implemented", head)
+    if nvn:
+        print(f"\nThe game called the graphics API function {nvn.group(1)}, which the NVN2 front end does not have yet.\n"
+              "It goes in runtime/gfx/nvn/api/ (grep its neighbours: a Get/Set pair, the same object), recorded as an op\n"
+              "when it is a command buffer call and replayed in runtime/gfx/vk/exec/. Look at how mkw-recomp did the\n"
+              "nearest function first; this is a bigger task than an SDK replacement: say so in the issue.")
+        return 1
     m = next((re.search(r"in lifted function (\S+) = (\S+)(?: \((\S+?)\+)?", ln) for ln in lines[fatal:fatal + 4]
               if "in lifted function" in ln), None)
     if m:
         where = m.group(2) + (f" ({demangle([m.group(3)])[0]})" if m.group(3) else "")
         print(f"\nA crash inside lifted code ({'the SDK' if where.startswith('sdk') else 'the game'}), at {where}.")
+        # the crashing SDK function itself, called straight from the game: the usual missing replacement
+        if where.startswith("sdk") and m.group(3) and fr and fr[0][0] in GAME_MODULES and not call:
+            call = (m.group(3), f"{fr[0][0]}+{fr[0][1]:#x}")
     if fr:
         names = demangle([s or "" for _, _, s in fr])
         print("guest stack, innermost first:")

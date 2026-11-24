@@ -269,14 +269,57 @@ static unsigned head, tail;
 static uint64_t start_ticks;
 __attribute__((constructor)) static void started(void) { start_ticks = rt_ticks(); }
 
+static uint64_t message_event;   // mtf-recomp: GetNotificationMessageEvent's, once a guest thread asked for it
+
 void oe_push_message(uint32_t message) {
     plat_mutex_lock(&lock);
     if (tail - head < 32) {
         messages[tail++ % 32] = message;
         plat_cond_broadcast(&message_cv);
     }
+    uint64_t ev = message_event;
     plat_mutex_unlock(&lock);
+    if (ev) kern_signal_system_event(ev);
 }
+
+// mtf-recomp: Mario Tennis Fever reads the same queue without blocking. bool TryPopNotificationMessage(Message *out)
+static void ov_try_pop(Cpu *c) {
+    plat_mutex_lock(&lock);
+    int have = head != tail;
+    if (have) ST32(arg_x(c, 0), messages[head++ % 32]);
+    plat_mutex_unlock(&lock);
+    ret_x(c, (uint64_t)have);
+}
+
+// nn::os::SystemEvent *GetNotificationMessageEvent(): signalled on each message (auto clear: the game pops until
+// TryPopNotificationMessage says none), at once when messages wait already
+static void ov_message_event(Cpu *c) {
+    plat_mutex_lock(&lock);
+    uint64_t ev = message_event;
+    plat_mutex_unlock(&lock);
+    if (!ev) {
+        ev = mem_runtime_alloc(0x1000, "oe message event");
+        if (!ev) rt_fatal("oe: no memory for the notification message event");
+        kern_bind_system_event(c, ev, 1);
+        plat_mutex_lock(&lock);
+        message_event = ev;
+        int waiting = head != tail;
+        plat_mutex_unlock(&lock);
+        if (waiting) kern_signal_system_event(ev);
+    }
+    ret_x(c, ev);
+}
+
+// void GetDefaultDisplayResolution(int *width, int *height): 1920x1080, Switch 2's handheld screen and the docked
+// default the runtime renders (the window and the internal resolution are the host's settings)
+static void ov_default_resolution(Cpu *c) {
+    ST32(arg_x(c, 0), 1920);
+    ST32(arg_x(c, 1), 1080);
+}
+
+// void GetDefaultDisplayResolutionChangeEvent(nn::os::SystemEvent *out): a system event in the caller's object that
+// never fires (the default resolution does not change)
+static void ov_resolution_event(Cpu *c) { kern_bind_system_event(c, arg_x(c, 0), 1); }
 
 
 // TimeSpan GetProgramTotalActiveTime(): nanoseconds since the process started
@@ -538,6 +581,14 @@ static void ov_nsa_available(Cpu *c) {
 // (nn::account::ResultNetworkServiceAccountUnavailable is module 124; this description number is a hypothesis.)
 #define ACCOUNT_R_NSA_UNAVAILABLE (124u | (280u << 9))
 static void ov_nsa_unavailable(Cpu *c) { ret_x(c, ACCOUNT_R_NSA_UNAVAILABLE); }
+// mtf-recomp: Result LoadProfileImage(size_t *size, void *buffer, size_t bufferSize, const Uid &): the local user has
+// no profile picture (no Nintendo Account, no icon chosen), so nothing is written and the call fails; the description
+// number is a hypothesis, any failure sends the game to its own default picture.
+#define ACCOUNT_R_NO_IMAGE (124u | (100u << 9))
+static void ov_profile_image(Cpu *c) {
+    if (arg_x(c, 0)) ST64(arg_x(c, 0), 0);
+    ret_x(c, ACCOUNT_R_NO_IMAGE);
+}
 
 // Result GetUserExistence(bool *out, const Uid &)
 static void ov_user_existence(Cpu *c) {
@@ -814,6 +865,16 @@ static const uint8_t *font_data(Cpu *c, const char *fn, int64_t t) {
         fclose(f);
         uint64_t size = got == (size_t)len ? ov_bfttf_size(p, (uint64_t)len) : 0;
         if (!size) rt_fatal("nn::pl: shared font %s is not a BFTTF font", path);
+        // mtf-recomp: the pl service decodes each font into its shared memory and keeps only the 8-byte header
+        // encoded, so Address points at a plain sfnt font (yuzu pl_u.cpp EncryptSharedFont writes the same). Mario
+        // Tennis Fever's engine hands that address straight to nn::fontll::ScalableFontEngine::LoadFont, which
+        // fails (error 0x193) on the encoded words and leaves the font engine empty for a crash later
+        // (basic+0xaef858). Words are big-endian, XORed with the header's key.
+        uint32_t key = be32(p) ^ BFTTF_MAGIC;
+        for (uint64_t i = 8; i + 4 <= (uint64_t)len; i += 4) {
+            uint32_t w = be32(p + i) ^ key;
+            p[i] = (uint8_t)(w >> 24), p[i + 1] = (uint8_t)(w >> 16), p[i + 2] = (uint8_t)(w >> 8), p[i + 3] = (uint8_t)w;
+        }
         fonts.size[t] = size;
         __atomic_store_n(&fonts.file[t], p, __ATOMIC_RELEASE);
         rt_log("pl: shared font %lld (%s): %llu bytes from %s", (long long)t, font_type_name(t),
@@ -852,6 +913,11 @@ HOST_OVERRIDE("_ZN2nn2oe25GetProgramTotalActiveTimeEv", ov_active_time);
 HOST_OVERRIDE("_ZN2nn2oe38SetUserInactivityDetectionTimeExtendedEb", ov_inactivity_extended);
 HOST_OVERRIDE("_ZN2nn2oe17FinishStartupLogoEv", ov_finish_logo);
 HOST_OVERRIDE("_ZN2nn2oe22PopNotificationMessageEv", ov_pop);
+HOST_OVERRIDE("_ZN2nn7account16LoadProfileImageEPmPvmRKNS0_3UidE", ov_profile_image);   // mtf-recomp
+HOST_OVERRIDE("_ZN2nn2oe25TryPopNotificationMessageEPj", ov_try_pop);   // mtf-recomp, the four below
+HOST_OVERRIDE("_ZN2nn2oe27GetNotificationMessageEventEv", ov_message_event);
+HOST_OVERRIDE("_ZN2nn2oe27GetDefaultDisplayResolutionEPiS1_", ov_default_resolution);
+HOST_OVERRIDE("_ZN2nn2oe38GetDefaultDisplayResolutionChangeEventEPNS_2os11SystemEventE", ov_resolution_event);
 HOST_OVERRIDE("_ZN2nn5prepo10PlayReport4SaveEv", ov_report_save);
 HOST_OVERRIDE("_ZN2nn5prepo10PlayReport4SaveERKNS_7account3UidE", ov_report_save);
 HOST_OVERRIDE("_ZN2nn5prepo28RequestImmediateTransmissionEv", ov_result_ok);
