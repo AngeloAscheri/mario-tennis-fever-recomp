@@ -2,7 +2,7 @@
 name = "mtf-recomp"
 version = "0.0.0"
 description = "Static recompilation of Mario Tennis Fever (Switch 2): generator and analysis tools"
-requires-python = ">=3.12"
+requires-python = ">=3.14"
 dependencies = ["lz4>=4.4", "numpy>=2.3"]
 
 [dependency-groups]
@@ -10,8 +10,8 @@ dev = ["ruff>=0.14", "pytest>=8.4", "capstone>=5.0.9", "unicorn>=2.1", "ziglang>
 
 [tool.ruff]
 line-length = 120
-# vendored from mkw-recomp / totk-pc-recomp / LAS Recomp: kept close to upstream so the two can be compared
-extend-exclude = ["recomp"]
+# vendored (mkw-recomp, totk-pc-recomp, LAS Recomp, nvsass-disassembler, DocumentSASS), as mkw-recomp excludes them
+extend-exclude = ["recomp", "sm86/decode", "sm86/spec/funnel.py", "sm86/spec/parse_sidl.py", "sm86/spec/sidl_*.py"]
 
 [tool.ruff.lint]
 select = ["E9", "F"]
