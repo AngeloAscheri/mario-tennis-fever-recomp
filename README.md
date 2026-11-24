@@ -32,7 +32,7 @@ needs from us is mostly the game-specific part.
 
 ## Status
 
-**It runs, without a picture.** The engine boots and its main loop presents frames at 60 fps, but every draw is skipped: the game's shaders are not translated yet (F3). Updated 24 November 2026.
+**First pixels.** The engine boots, runs at 60 fps and draws its first text with its own shaders, translated to SPIR-V; the rest of the screen is still black. Updated 24 November 2026.
 
 | Phase | | State |
 | --- | --- | --- |
@@ -40,7 +40,7 @@ needs from us is mostly the game-specific part.
 | F0b Unpack the engine | ✅ | `tools/unpack_engine.py` rebuilds the engine from your `main`; its SHA-256 matches the one the game itself registers. |
 | F1 OS | 🚧 | On mkw-recomp's runtime, `build/mkw --boot` passes (876 SVCs, 25 threads): nxboot unpacks the engine in the guest (byte for byte the offline copy), the engine's constructors run, it reads its archive, mounts its save, initializes controllers, rumble, motion and audio. |
 | F2 NVN2 | 🚧 | The device, fonts and command buffers work; 20 s runs end cleanly at 60 fps (1,776 frames in 29.6 s). |
-| F3 Shaders | ⏳ | **Next.** Every draw is skipped: "no prepared SPIR-V". mkw-recomp's SM86 translator (`sm86/`, `tools/shaders/`) and where Tennis keeps its shaders. |
+| F3 Shaders | 🚧 | mkw-recomp's SM86 translator works unchanged on Tennis: the 27 programs of the first minute, dumped at run time, all translate to valid SPIR-V, and the first text appears. |
 | F4 Vulkan | ⏳ | First picture. |
 | F5 Playable | ⏳ | Input, audio, movies, saves. |
 

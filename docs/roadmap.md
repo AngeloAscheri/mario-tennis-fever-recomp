@@ -32,8 +32,11 @@ The open work, in order. Each item becomes one or more issues; the issue says wh
 
 ## F3 — Shaders
 
-- [ ] **Next:** every draw is skipped ("no prepared SPIR-V"). Bring mkw-recomp's `sm86/` translator and `tools/shaders/`,
-      find where Tennis keeps its shaders (inside `42`, or only as NVN programs at run time).
+- [x] mkw-recomp's `sm86/` translator and `tools/shaders/` imported unchanged; the programs a run meets
+      (`MKW_SPIRV_DUMP=build/shader-dump`) translate with `tools/shaders/translate.py --dumped build/shader-dump`:
+      27 of 27 valid SPIR-V. The first text is drawn.
+- [ ] [#11](../../../issues/11) Every program of the game, not only the ones a run met: where Tennis keeps them (`42`, #2).
+- [ ] The controller button icons come out as "?": the stand-in fonts lack the Nintendo extension font's glyphs.
 
 ## F4 — First picture
 

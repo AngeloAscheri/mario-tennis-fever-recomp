@@ -75,3 +75,12 @@ Never paste game files, hex dumps or disassembly listings in issues: addresses a
 
 Nothing of the game goes into the repository, issues or pull requests. Code from other projects only if
 MIT-compatible, credited. The console's behaviour is the default. The full list: [CONTRIBUTING.md](../CONTRIBUTING.md).
+
+## Shaders
+
+The game's shaders are translated to SPIR-V ahead of time by mkw-recomp's translator (`sm86/`). For now they are
+collected from a run: `MKW_SPIRV_DUMP=build/shader-dump` saves every program the run had no SPIR-V for, then
+`uv run tools/shaders/translate.py --shaders <empty dir with an index.csv header> --dumped build/shader-dump
+--dumped-only` translates them into `build/spirv/`. The translator needs `build/sm86/instructions.json`, built on
+your machine from NVIDIA's `nvdisasm` ([sm86/spec/README.md](../sm86/spec/README.md)). Issue #11 is making this one
+step.
