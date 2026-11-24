@@ -6,7 +6,7 @@ requires-python = ">=3.12"
 dependencies = ["lz4>=4.4", "numpy>=2.3"]
 
 [dependency-groups]
-dev = ["ruff>=0.14", "pytest>=8.4", "capstone>=5.0.9", "unicorn>=2.1"]
+dev = ["ruff>=0.14", "pytest>=8.4", "capstone>=5.0.9", "unicorn>=2.1", "ziglang>=0.14"]
 
 [tool.ruff]
 line-length = 120

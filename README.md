@@ -92,6 +92,7 @@ git config core.hooksPath tools/git          # the content guard, once
 uv sync
 uv run recomp/versions.py <exefs>            # which version you have
 uv run python recomp/gen.py --exefs <exefs>  # lifts main + sdk to C in build/generated-<version>/ (seconds)
+uv run pytest -q                             # the tests, no game needed
 ```
 
 Only already-decrypted dumps (ExeFS and RomFS folders) are supported. Formats that need console keys (NSP, XCI, NCA)

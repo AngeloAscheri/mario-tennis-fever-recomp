@@ -1,0 +1,14 @@
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Questions about building, the tools or the research. Nobody here can share game files, dumps or keys: such requests are closed.
+  - type: textarea
+    attributes:
+      label: Question
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: What you tried
+      description: Commands, output (uv run tools/inspect_dump.py helps), OS.

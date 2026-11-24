@@ -30,6 +30,11 @@ function name, NVN2 over Vulkan). Plan: [docs/roadmap.md](docs/roadmap.md). Find
 - `uv run python recomp/gen.py --exefs <exefs>`: lifts to `build/generated-<version>/` in seconds.
 - mkw-recomp is the reference for everything Switch 2: read how it solved a point before inventing.
 
+## Test without the game first
+
+- `uv run pytest -q`: content guard, versions, lifter (seconds).
+- `uv run tools/cpu/lift_diff.py`: every lifter change keeps all cases agreeing with Unicorn.
+
 ## Working
 
 - Write down what you expect before a run, and what each outcome would mean.

@@ -8,4 +8,7 @@ mtf-recomp is MIT ([LICENSE](LICENSE)). Code copied from other projects keeps it
 | the same files, before mkw-recomp | [TotK Recomp](https://github.com/valentderah/totk-pc-recomp) `recomp/` | c3b9a4e | MIT, Copyright (c) 2026 Valiantsin Dzerakh | [recomp/LICENSE.totk-pc-recomp](recomp/LICENSE.totk-pc-recomp) |
 | `lifter.py`, `nso.py`, `simd_c.py`, `gen.py` originally | [LAS Recomp](https://github.com/peiikai/LASRecomp) `tools/` | da35b83 | MIT, Copyright (c) 2026 Peiikai | named in each file's header |
 
+| `runtime/cpu/cpu.h`, `simd.h`, `simd_fp.h` | [mkw-recomp](https://github.com/adriadam10/mkw-recomp) `runtime/cpu/` (from TotK Recomp and LAS Recomp) | c38933e | MIT | [recomp/LICENSE.mkw-recomp](recomp/LICENSE.mkw-recomp), [runtime/LICENSE.totk-pc-recomp](runtime/LICENSE.totk-pc-recomp) |
+| `tools/cpu/lift_diff.py` | [mkw-recomp](https://github.com/adriadam10/mkw-recomp) `tools/cpu/` | c38933e | MIT | [recomp/LICENSE.mkw-recomp](recomp/LICENSE.mkw-recomp) |
+
 `recomp/versions.py` is new, modelled on mkw-recomp's file of the same name (MIT).

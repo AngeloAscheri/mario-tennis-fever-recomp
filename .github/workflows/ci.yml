@@ -30,3 +30,7 @@ jobs:
       - run: uv run ruff check
       - name: The generator's modules import
         run: uv run python -c "import sys; sys.path.insert(0, 'recomp'); import gen, versions, layout, patches"
+      - name: Tests (content guard, versions, lifter against Unicorn)
+        run: uv run pytest -q
+      - name: Lifter differential test, more cases
+        run: uv run tools/cpu/lift_diff.py --n 2000

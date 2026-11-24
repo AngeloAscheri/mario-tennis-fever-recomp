@@ -1,0 +1,11 @@
+body:
+  - type: markdown
+    attributes:
+      value: |
+        One idea per discussion. Check docs/roadmap.md first: if it is already there, add to its issue instead. Not here: online play.
+  - type: textarea
+    attributes:
+      label: Idea
+      description: What it would do and why it helps the port.
+    validations:
+      required: true

@@ -7,7 +7,8 @@ The open work, in order. Each item becomes one or more issues; the issue says wh
 
 - [x] Lifter from mkw-recomp, adapted (`MTF_` marker and switches, `recomp/versions.py` with both known builds).
 - [x] `main` (the visible part) and `sdk` lift with 0 unsupported instructions.
-- [ ] Differential tests of the lifter against Unicorn on Tennis's own instructions (mkw-recomp's `tools/cpu/lift_diff.py`).
+- [x] Differential test of the lifter's ARMv8.1-8.3 classes against Unicorn (`tools/cpu/lift_diff.py`, 2000 of 2000, in CI).
+- [ ] The same over every instruction shape of Tennis's own code (mkw-recomp's `tools/cpu/lift_game_diff.py`; runs locally, needs the dump).
 - [ ] [#5](../../../issues/5) Spin waits: find them with mkw-recomp's `tools/cpu/spin_waits.py` and fill `recomp/patches-mtf-*.txt`.
 
 ## F0b — Unpack the engine (the first blocker)

@@ -51,6 +51,13 @@ mkw-recomp keep their origin in their header.
 - Comments say why, not what, and name the measurement or source behind a choice.
 - Every new folder gets a `README.md` that names its files.
 
+## Tests
+
+`uv run pytest -q` runs in seconds and needs no game: the content guard, the version table, and the lifter against
+Unicorn. CI runs it, `ruff check` and the content guard on every pull request, and a pull request is merged only
+when they pass. A change to `recomp/` keeps `uv run tools/cpu/lift_diff.py` at all cases agreeing. New behaviour
+comes with a test when it can be checked without the game.
+
 ## Commits and pull requests
 
 - Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/) (`feat(recomp): ...`,
