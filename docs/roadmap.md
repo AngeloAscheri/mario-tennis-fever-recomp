@@ -8,18 +8,18 @@ The open work, in order. Each item becomes one or more issues; the issue says wh
 - [x] Lifter from mkw-recomp, adapted (`MTF_` marker and switches, `recomp/versions.py` with both known builds).
 - [x] `main` (the visible part) and `sdk` lift with 0 unsupported instructions.
 - [ ] Differential tests of the lifter against Unicorn on Tennis's own instructions (mkw-recomp's `tools/cpu/lift_diff.py`).
-- [ ] Spin waits: find them with mkw-recomp's `tools/cpu/spin_waits.py` and fill `recomp/patches-mtf-*.txt`.
+- [ ] [#5](../../../issues/5) Spin waits: find them with mkw-recomp's `tools/cpu/spin_waits.py` and fill `recomp/patches-mtf-*.txt`.
 
 ## F0b — Unpack the engine (the first blocker)
 
-- [ ] Find how `nxboot` (`main`) turns its 12.9 MiB payload into `basic.nrs` ([research.md](research.md#open-questions)).
+- [ ] [#1](../../../issues/1) Find how `nxboot` (`main`) turns its 12.9 MiB payload into `basic.nrs` ([research.md](research.md#open-questions)).
 - [ ] A tool, `tools/unpack_engine.py`, that rebuilds `basic.nrs` from the user's own `main` into `build/`, checked
       against the `.nrr` hash if it is listed there.
 - [ ] Lift `basic.nrs` (an extra module in `recomp/layout.py`) and count unsupported instructions.
 
 ## F1 — OS: boot on the Horizon host
 
-- [ ] Bring mkw-recomp's `runtime/` over (core, cpu, sdk, platform), strip what is Mario Kart World's own.
+- [ ] [#3](../../../issues/3) Bring mkw-recomp's `runtime/` over (core, cpu, sdk, platform), strip what is Mario Kart World's own.
 - [ ] Load `nxboot` + `basic` + `sdk` as the console would; `nn::ro` answers for the engine module.
 - [ ] RomFS host serving `42`; save data; reach `nnMain` of the engine.
 

@@ -65,18 +65,19 @@ own issue; say in it that you are on it, and keep a pull request to one topic.
 
 **Reverse engineering** (the most useful right now):
 
-- **How `nxboot` loads `basic.nrs`.** Find the code in `main` that reads the payload in `.data`, and what it does to it
+- [#1](../../issues/1) **How `nxboot` loads `basic.nrs`.** Find the code in `main` that reads the payload in `.data`, and what it does to it
   (zstd and LZ4 are imported; is there a cipher in front?). Output wanted: a description of the format and a tool that
   rebuilds `basic.nrs` from the user's own `main`.
-- **The RomFS archive.** The whole RomFS is one 7.8 GB file, `42`, starting with the magic `CRA.`. Its index format
+- [#2](../../issues/2) **The RomFS archive.** The whole RomFS is one 7.8 GB file, `42`, starting with the magic `CRA.`. Its index format
   matters for the file system host and for modding later.
 
 **Porting** (once `basic.nrs` lifts):
 
-- Bring mkw-recomp's `runtime/` over, make it build, and boot to the first SVC.
+- [#3](../../issues/3) Bring mkw-recomp's `runtime/` over, make it build, and boot to the first SVC.
+- [#5](../../issues/5) Port mkw-recomp's spin-wait finder and fill the patch tables (good first issue).
 - Lift `basic.nrs` and count what the lifter does not support.
 
-**No code needed:** run `tools/inspect_dump.py` on your dump and post the output in the dump-report issue. Other
+**No code needed:** run `tools/inspect_dump.py` on your dump and post the output in [#4](../../issues/4). Other
 regions or updates show up as other build ids; every one helps.
 
 Read [CONTRIBUTING.md](CONTRIBUTING.md) first. Its hard rule: nothing that came out of the game goes into the
