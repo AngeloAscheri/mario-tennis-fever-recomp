@@ -15,6 +15,9 @@ R_AARCH64_ABS64, R_AARCH64_GLOB_DAT, R_AARCH64_JUMP_SLOT, R_AARCH64_RELATIVE = 2
 class Nso:
     def __init__(self, path):
         raw = open(path, 'rb').read()
+        if raw[0x10:0x14] == b'NRO0':
+            self._load_nro(raw)
+            return
         assert raw[:4] == b'NSO0', path
         flags = struct.unpack_from('<I', raw, 0xC)[0]
         self.build_id = raw[0x40:0x60].rstrip(b'\0').hex()
@@ -35,6 +38,20 @@ class Nso:
         img = bytearray(self.size)
         for off, d in segs:
             img[off:off + len(d)] = d
+        self.image = img
+        self._parse_mod0()
+
+    def _load_nro(self, raw):
+        """An NRO (mtf-recomp: Mario Tennis Fever's engine, basic.nrs, rebuilt by tools/unpack_engine.py): the file
+        is the image itself, segments at their file offsets, uncompressed, with .bss after .data."""
+        self.build_id = raw[0x40:0x60].rstrip(b'\0').hex()
+        segs = [struct.unpack_from('<II', raw, 0x20 + i * 8) for i in range(3)]
+        self.text, self.rodata, self.data = segs
+        self.bss_size = struct.unpack_from('<I', raw, 0x38)[0]
+        end = self.data[0] + self.data[1] + self.bss_size
+        self.size = (end + 0xFFF) & ~0xFFF
+        img = bytearray(self.size)
+        img[:len(raw)] = raw
         self.image = img
         self._parse_mod0()
 

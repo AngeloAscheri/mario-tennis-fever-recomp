@@ -32,25 +32,25 @@ needs from us is mostly the game-specific part.
 
 ## Status
 
-**Day 0: research.** Nothing runs yet. Updated 23 November 2026.
+**Early research: the whole game now lifts.** Nothing runs yet. Updated 24 November 2026.
 
 | Phase | | State |
 | --- | --- | --- |
-| F0 CPU: lift the code | 🚧 | The lifter (from mkw-recomp) translates `sdk` (47,907 functions) and the visible part of `main` with **no unsupported instruction**. But `main` turns out to be a loader: see below. |
-| F0b Unpack the engine | 🔍 | **The first open problem.** The game engine is not in `main` as shipped. |
+| F0 CPU: lift the code | ✅ | `main`, the engine `basic` and `sdk`: 110,000 functions lift with **no unsupported instruction**; 1,541 of 1,542 instruction shapes of the game agree with Unicorn. |
+| F0b Unpack the engine | ✅ | `tools/unpack_engine.py` rebuilds the engine from your `main`; its SHA-256 matches the one the game itself registers. |
 | F1 OS | ⏳ | Boot on mkw-recomp's Horizon host. |
 | F2 NVN2 | ⏳ | mkw-recomp's NVN2 front end. |
 | F3 Shaders | ⏳ | Ampere SM86 → SPIR-V, as in mkw-recomp. |
 | F4 Vulkan | ⏳ | First picture. |
 | F5 Playable | ⏳ | Input, audio, movies, saves. |
 
-### The first finding: `main` is a bootstrap
+### How the engine is found
 
-`exefs/main` is a small loader the game calls `nxboot`: **0.6 MiB of code** and a **12.9 MiB `.data` segment with an
-entropy of 8.00 bits per byte** (compressed or encrypted; the console's own packer did not even try to LZ4 it). Its
-dynamic section asks for a second module, `basic.nrs`, from a build path `nxe/nxapp/Ounce64/LibMASTER`. The real game
-engine lives in that payload and is loaded at run time, which a static recompiler cannot see. Details and the open
-questions: [docs/research.md](docs/research.md).
+`exefs/main` is only a loader the game calls `nxboot`: 0.6 MiB of code and a 12.9 MiB payload. At boot, six threads
+unscramble and decompress six chunks of it into one NRO, the engine (`basic.nrs`, 24 MB, 61,000 functions), which
+`nxboot` hands to `nn::ro::LoadModule`. `tools/unpack_engine.py` does the same offline, on your machine, from your own
+dump, in about a second and a half, and the result's SHA-256 is the one the game's own `.nrr` registers. The format:
+[docs/research.md](docs/research.md#the-engine-payload-solved-24112026).
 
 Your dump's facts (no game bytes) in one command:
 
@@ -65,17 +65,14 @@ own issue; say in it that you are on it, and keep a pull request to one topic.
 
 **Reverse engineering** (the most useful right now):
 
-- [#1](../../issues/1) **How `nxboot` loads `basic.nrs`.** Find the code in `main` that reads the payload in `.data`, and what it does to it
-  (zstd and LZ4 are imported; is there a cipher in front?). Output wanted: a description of the format and a tool that
-  rebuilds `basic.nrs` from the user's own `main`.
 - [#2](../../issues/2) **The RomFS archive.** The whole RomFS is one 7.8 GB file, `42`, starting with the magic `CRA.`. Its index format
   matters for the file system host and for modding later.
 
-**Porting** (once `basic.nrs` lifts):
+**Porting** (the engine lifts now):
 
 - [#3](../../issues/3) Bring mkw-recomp's `runtime/` over, make it build, and boot to the first SVC.
 - [#5](../../issues/5) Port mkw-recomp's spin-wait finder and fill the patch tables (good first issue).
-- Lift `basic.nrs` and count what the lifter does not support.
+- Where the engine keeps its shaders, and how many NVN2 entry points it uses that Mario Kart World does not.
 
 **No code needed:** run `tools/inspect_dump.py` on your dump and post the output in [#4](../../issues/4). Other
 regions or updates show up as other build ids; every one helps.
@@ -91,7 +88,8 @@ Linux, Python 3.12+ and [uv](https://docs.astral.sh/uv/). With a decrypted ExeFS
 git config core.hooksPath tools/git          # the content guard, once
 uv sync
 uv run recomp/versions.py <exefs>            # which version you have
-uv run python recomp/gen.py --exefs <exefs>  # lifts main + sdk to C in build/generated-<version>/ (seconds)
+uv run tools/unpack_engine.py <exefs>        # rebuilds the engine into build/, writes build/modules-<version>/
+uv run python recomp/gen.py --exefs build/modules-<version>   # lifts main + basic + sdk to C (seconds)
 uv run pytest -q                             # the tests, no game needed
 ```
 

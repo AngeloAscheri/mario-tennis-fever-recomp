@@ -27,7 +27,9 @@ function name, NVN2 over Vulkan). Plan: [docs/roadmap.md](docs/roadmap.md). Find
   outside the repo.
 - `uv run tools/inspect_dump.py <exefs>`: version, modules, segments, entropy, NintendoSDK version.
 - `uv run recomp/versions.py <exefs>`: which known build a dump is.
-- `uv run python recomp/gen.py --exefs <exefs>`: lifts to `build/generated-<version>/` in seconds.
+- `uv run tools/unpack_engine.py <exefs>`: rebuilds the engine (`basic`, an NRO) and `build/modules-<version>/`.
+- `uv run python recomp/gen.py --exefs build/modules-<version>`: lifts `main`, `basic`, `sdk` in seconds.
+- `uv run tools/analysis/plt.py <module> --calls REGEX`: who calls an import.
 - mkw-recomp is the reference for everything Switch 2: read how it solved a point before inventing.
 
 ## Test without the game first

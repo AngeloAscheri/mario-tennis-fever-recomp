@@ -11,13 +11,16 @@ Changes against mkw-recomp:
 - `gen.py`: the marker is `MTF_RECOMP_…`; the defaults name Tennis's versions.
 - `patches.py`: run-time switches take the `MTF_` prefix.
 - `versions.py`: new, Tennis's builds (base and update 327680).
+- `nso.py`: also opens an NRO (the engine `basic`, rebuilt by `tools/unpack_engine.py`).
+- `layout.py`: `basic` is placed after `main`.
 - Left out: MKW's patch tables and HUD layout tables (`hud_layouts.py`).
 
-Usage: `uv run python recomp/gen.py --exefs <exefs> --jobs 8` (seconds; writes `build/generated-<version>/`).
+Usage: `uv run python recomp/gen.py --exefs build/modules-<version> --jobs 8` (seconds; writes `build/generated-<version>/`).
+The modules folder comes from `tools/unpack_engine.py`; an ExeFS folder alone lifts only `main` and `sdk`.
 
 | File | What it does |
 | --- | --- |
-| `nso.py` | Loads an NSO: LZ4 segments, image, MOD0, symbols and relocations |
+| `nso.py` | Loads an NSO (LZ4 segments) or an NRO: image, MOD0, symbols and relocations |
 | `module.py` | A module loaded at a base: `.text` words, function seeds |
 | `lifter.py` | AArch64 decoder → C statements per instruction |
 | `simd_c.py` | NEON/FP → C |

@@ -6,7 +6,7 @@ calls layout() and writes the result into generated/<version>/layout.h and layou
 build read.
 
 Modules are placed in Horizon's load order (rtld is dropped; the host links the modules):
-main, subsdk0..9, sdk. Each base is aligned to 2 MiB. Everything must stay below 2^39, the limit of the addresses
+main, basic (mtf-recomp), subsdk0..9, sdk. Each base is aligned to 2 MiB. Everything must stay below 2^39, the limit of the addresses
 IPC buffers can encode.
 """
 import json
@@ -17,7 +17,8 @@ from nso import Nso
 FIRST_BASE = 0x7000000000
 ALIGN = 0x200000
 ADDRESS_LIMIT = 1 << 39
-ORDER = ['main'] + [f'subsdk{i}' for i in range(10)] + ['sdk']
+# mtf-recomp: 'basic' is Mario Tennis Fever's engine, an NRO nn::ro loads at run time (tools/unpack_engine.py).
+ORDER = ['main', 'basic'] + [f'subsdk{i}' for i in range(10)] + ['sdk']
 
 
 def align_up(v, a=ALIGN):
