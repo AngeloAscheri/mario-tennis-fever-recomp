@@ -1,0 +1,27 @@
+name: Bug report
+description: A tool, the lifter or (later) the game does something wrong
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened and what you expected
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps and command
+  - type: textarea
+    id: log
+    attributes:
+      label: Log or output
+      render: text
+  - type: input
+    id: system
+    attributes:
+      label: OS, CPU, GPU and driver
+  - type: input
+    id: build
+    attributes:
+      label: Build id of exefs/main (uv run recomp/versions.py)

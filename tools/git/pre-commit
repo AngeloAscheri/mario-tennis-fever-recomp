@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Refuse a commit that stages game content, keys or C generated from the game (tools/check_content.py).
+# Installed by: git config core.hooksPath tools/git
+set -euo pipefail
+python3 tools/check_content.py --staged

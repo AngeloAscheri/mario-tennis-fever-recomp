@@ -1,0 +1,15 @@
+name: Dump report
+description: The output of tools/inspect_dump.py on your dump (no game bytes)
+labels: ["dump report"]
+body:
+  - type: textarea
+    id: output
+    attributes:
+      label: Output of `uv run tools/inspect_dump.py <dump>/exefs`
+      render: text
+    validations:
+      required: true
+  - type: input
+    id: region
+    attributes:
+      label: Region and version shown on the console (if you know it)

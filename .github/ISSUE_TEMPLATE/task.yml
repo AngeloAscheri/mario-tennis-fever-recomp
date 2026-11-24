@@ -1,0 +1,23 @@
+name: Task
+description: A bounded piece of work (code, a tool, a port step) someone can pick up
+labels: ["task"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What needs doing
+      description: The outcome, and how we will know it is done.
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Roadmap phase, related findings in docs/research.md, upstream code to look at (mkw-recomp file and function).
+  - type: checkboxes
+    id: rules
+    attributes:
+      label: Rules
+      options:
+        - label: This needs no game bytes in the issue or the repository (CONTRIBUTING.md)
+          required: true

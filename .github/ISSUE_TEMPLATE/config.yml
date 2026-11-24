@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Question or idea
+    url: https://github.com/AngeloAscheri/mtf-recomp/discussions
+    about: Ask about building, the research, or propose something before opening an issue

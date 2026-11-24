@@ -1,0 +1,21 @@
+name: Research finding
+description: Something learned about the game's code or data (a format, a function, a loader step)
+labels: ["research"]
+body:
+  - type: textarea
+    id: finding
+    attributes:
+      label: Finding
+      description: What you found, with addresses, sizes and build ids. Describe; never paste the game's bytes or disassembly with its encodings.
+    validations:
+      required: true
+  - type: textarea
+    id: how
+    attributes:
+      label: How you found it
+      description: Tools, steps, so someone else can check it.
+  - type: input
+    id: build
+    attributes:
+      label: Build id of exefs/main
+      placeholder: 104bce6874603701

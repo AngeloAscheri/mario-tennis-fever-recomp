@@ -1,0 +1,3 @@
+# Patch table of Mario Tennis Fever, update 327680.
+# Format: recomp/patches.py. Empty for now: the spin waits are the first thing to fill in
+# (roadmap F0, "spin waits"), found the same way mkw-recomp finds its own (tools/cpu/spin_waits.py there).
