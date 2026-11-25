@@ -40,7 +40,10 @@ The open work, in order. Each item becomes one or more issues; the issue says wh
 
 ## F4 — First picture
 
-- [ ] Title screen on Vulkan.
+- [x] The intro movie plays (VP9 through main's `movie::` library and the SDK's `nn::movie` extractor, decoded with
+      libvpx) and the title screen draws on Vulkan.
+- [ ] The title screen's text: its glyphs come out as white blocks.
+- [ ] Some runs skip the movie and show a black screen with a few glyphs instead: find what decides it.
 
 ## F5 — Playable
 

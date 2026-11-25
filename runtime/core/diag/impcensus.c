@@ -35,9 +35,17 @@ void impcensus_init(void) {
     const RtLoaded *m = ldr_module(0);
     if (strcmp(m->name, "main")) rt_fatal("impcensus: module 0 is %s, not main", m->name);
     main_lo = m->base, main_hi = m->base + m->size, out_path = p;
+    // mtf-recomp: the game's code is main and the engine module after it (basic, which nn::ro loads); the census
+    // counts the calls of both into the SDK. The loader places them next to each other, below the SDK modules.
+    const char *from = "main";
+    for (int i = 1; i < ldr_count(); i++) {
+        const RtLoaded *e = ldr_module(i);
+        if (!strcmp(e->name, "sdk") || !strncmp(e->name, "subsdk", 6) || e->base < main_hi) break;
+        main_hi = e->base + e->size, from = "main and the engine";
+    }
     impcensus_on = 1;
     rt_fnprof_set(1);
-    rt_log("impcensus: counting calls from main into the SDK modules (MKW_IMPORT_CENSUS=%s)", p);
+    rt_log("impcensus: counting calls from %s into the SDK modules (MKW_IMPORT_CENSUS=%s)", from, p);
 }
 
 void impcensus_hit(uint64_t addr, uint64_t lr) {

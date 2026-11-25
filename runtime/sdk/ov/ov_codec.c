@@ -78,17 +78,25 @@ static void fns(void) {
 
 // Guest SystemEventTypes from the kernel region (it cannot free), bound to kernel events so a host thread can signal
 // them (kern_signal_system_event). Finished ones are cleared and kept, bound, for the next: the kernel's table binds an
-// address once (kern_bind_system_event returns early for a known one), so they are never destroyed.
-static uint64_t free_events[64];
-static int nfree_events;
-static uint64_t event_new(Cpu *c) {
-    uint64_t ev = nfree_events ? free_events[--nfree_events] : (uint64_t)(uintptr_t)mem_kernel_alloc(0x100, 16);
-    kern_bind_system_event(c, ev, 1);   // clear mode 1, as CreateSystemEvent got before
+// address once (kern_bind_system_event returns early for a known one), so they are never destroyed; and with its clear
+// mode, so each mode keeps its own list.
+// mtf-recomp: a decoder's submission-ready event is manual clear. It is a state, "Submit takes another frame", which
+// Submit clears and Acquire sets again; more than one thread waits on it. Mario Tennis Fever's movie library (main's
+// movie::VideoDecoder) hands the same event to the engine as its input-ready event while its own thread waits on it
+// too: with auto clear the library's wait took the one signal and the engine waited on the intro movie forever.
+static uint64_t free_events[2][64];   // [autoclear]
+static int nfree_events[2];
+static uint64_t event_new(Cpu *c, int autoclear) {
+    int k = autoclear != 0;
+    uint64_t ev = nfree_events[k] ? free_events[k][--nfree_events[k]]
+                                  : (uint64_t)(uintptr_t)mem_kernel_alloc(0x100, 16);
+    kern_bind_system_event(c, ev, k);
     return ev;
 }
-static void event_free(Cpu *c, uint64_t ev) {
+static void event_free(Cpu *c, uint64_t ev, int autoclear) {
+    int k = autoclear != 0;
     rt_call(c, fn_clear, 1, ev);
-    if (nfree_events < 64) free_events[nfree_events++] = ev;
+    if (nfree_events[k] < 64) free_events[k][nfree_events[k]++] = ev;
 }
 
 // ---- decoded frames and decoders
@@ -118,6 +126,7 @@ typedef struct Dec {
     PlatCond cv;                  // input queued, stop, a packet done
     Packet *queue;                // submitted and not decoded yet, oldest first
     int nqueue, cqueue, busy, stop;   // busy: dec_main decodes a packet outside the lock
+    int started;                  // StartVp9Decoder (or a first Submit) came: the ready event may be signaled
     struct Dec *next;
 } Dec;
 
@@ -374,8 +383,7 @@ static void vp9_init(Cpu *c, uint8_t *o, uint32_t w, uint32_t h) {
     d->id = next_id++;
     d->next = decs, decs = d;
     plat_mutex_unlock(&lock);
-    d->ready_ev = event_new(c);
-    rt_call(c, fn_signal, 1, d->ready_ev);
+    d->ready_ev = event_new(c, 0);   // signaled from Start on (ov_vp9_start)
     if (!(d->thread = plat_thread_new(dec_main, d, "vp9 decode"))) rt_fatal("codec: cannot start the decoder thread");
     uint32_t magic = DEC_MAGIC;
     memcpy(o + 8, &magic, 4), memcpy(o + 12, &d->id, 4);
@@ -401,7 +409,7 @@ static void ov_vp9_fini(Cpu *c) {
     if (d->live) vpx_codec_destroy(&d->vpx);
     for (int i = 0; i < d->nframes; i++) free(d->frames[i].nv12);
     free(d->frames);
-    event_free(c, d->ready_ev);
+    event_free(c, d->ready_ev, 0);
     memset(o + 8, 0, 8);
     rt_log("codec: VP9 decoder %u finalized", d->id);
     free(d);
@@ -419,7 +427,26 @@ static void ov_vp9_register(Cpu *c) {
     plat_mutex_unlock(&lock);
     ret_x(c, 0);
 }
-static void ov_vp9_ok(Cpu *c) { (void)dec_of(c, 0); ret_x(c, 0); }   // Start, Stop
+// mtf-recomp: the submission-ready event is first signaled at Start, not at Initialize. The console's decoder service
+// signals it once the decoder runs; Mario Tennis Fever's engine takes its input-ready event (the same one, through
+// main's movie::VideoDecoder) into a dispatcher that clears it and counts one input credit per signal, but only once
+// its decoder is started: a signal from Initialize was counted before that, the credit lost, and the intro movie never
+// read a sample.
+static void ov_vp9_start(Cpu *c) {
+    Dec *d = dec_of(c, 0);
+    plat_mutex_lock(&lock);
+    d->started = 1;
+    if (pending_frames(d) < AHEAD) rt_call(c, fn_signal, 1, d->ready_ev);
+    plat_mutex_unlock(&lock);
+    ret_x(c, 0);
+}
+static void ov_vp9_stop(Cpu *c) {
+    Dec *d = dec_of(c, 0);
+    plat_mutex_lock(&lock);
+    d->started = 0;
+    plat_mutex_unlock(&lock);
+    ret_x(c, 0);
+}
 
 static void ov_vp9_flush(Cpu *c) {   // drops what was submitted and not decoded
     Dec *d = dec_of(c, 0);
@@ -450,6 +477,10 @@ static void ov_vp9_submit(Cpu *c) {
     plat_mutex_lock(&lock);
     TRACE(T_SUBMIT, "decoder %u %llu bytes pts %lld eos %d (decoded %llu, acquired %llu)", d->id,
           (unsigned long long)size, (long long)pts, eos, (unsigned long long)d->decoded, (unsigned long long)d->acquired);
+    if (!d->started) {   // a player that submits without StartVp9Decoder: started from here on
+        rt_log("codec: decoder %u: Submit before Start, taken as started", d->id);
+        d->started = 1;
+    }
     if (pending_frames(d) >= AHEAD) {
         TRACE(T_BUSY, "decoder %u", d->id);
         rt_call(c, fn_clear, 1, d->ready_ev);
@@ -468,7 +499,8 @@ static void ov_vp9_submit(Cpu *c) {
         if (size) memcpy(p->data, data, size);
         plat_cond_broadcast(&d->cv);
     }
-    if (pending_frames(d) >= AHEAD) rt_call(c, fn_clear, 1, d->ready_ev);
+    // as the service does once it took the input: ready for the next, or not until a slot is acquired
+    rt_call(c, pending_frames(d) >= AHEAD ? fn_clear : fn_signal, 1, d->ready_ev);
     *consumed = size;
     plat_mutex_unlock(&lock);
     ret_x(c, 0);
@@ -492,7 +524,7 @@ static void ov_vp9_acquire(Cpu *c) {
     h[0] = d->id, h[1] = d->acquired;
     TRACE(T_ACQUIRE, "decoder %u slot %d frame %llu (decoded %llu)", d->id, slot, (unsigned long long)d->acquired,
           (unsigned long long)d->decoded);
-    if (pending_frames(d) < AHEAD) rt_call(c, fn_signal, 1, d->ready_ev);
+    if (d->started && pending_frames(d) < AHEAD) rt_call(c, fn_signal, 1, d->ready_ev);
     plat_mutex_unlock(&lock);
     ret_x(c, 0);
 }
@@ -592,7 +624,7 @@ static uint64_t sp_event(Cpu *c, int arg) { return *(uint64_t *)arg_p(c, arg); }
 static void ov_sp_create(Cpu *c) {
     uint64_t *o = arg_p(c, 0);
     fns();
-    *o = event_new(c);
+    *o = event_new(c, 1);
     ret_x(c, 0);
 }
 static void ov_sp_destroy(Cpu *c) {
@@ -601,7 +633,7 @@ static void ov_sp_destroy(Cpu *c) {
     for (Wait **pp = &waits; *pp;)
         if ((*pp)->ev == ev) { Wait *w = *pp; *pp = w->next; free(w); } else pp = &(*pp)->next;
     plat_mutex_unlock(&lock);
-    event_free(c, ev);
+    event_free(c, ev, 1);
     *o = 0;
 }
 static void ov_sp_holder(Cpu *c) {
@@ -646,8 +678,8 @@ HOST_OVERRIDE("_ZN2nn5codec20InitializeVp9DecoderEPNS0_14Vp9DecoderTypeEPvmmttjN
 HOST_OVERRIDE("_ZN2nn5codec20InitializeVp9DecoderEPNS0_14Vp9DecoderTypeEmmttjNS0_23VideoDecoderInputFormatENS0_24VideoDecoderOutputFormatE", ov_vp9_init);
 HOST_OVERRIDE("_ZN2nn5codec18FinalizeVp9DecoderEPNS0_14Vp9DecoderTypeE", ov_vp9_fini);
 HOST_OVERRIDE("_ZN2nn5codec24RegisterVp9DecoderBufferEPNS0_14Vp9DecoderTypeEjPNS0_25VideoDecoderImagePoolTypeEj", ov_vp9_register);
-HOST_OVERRIDE("_ZN2nn5codec15StartVp9DecoderEPNS0_14Vp9DecoderTypeE", ov_vp9_ok);
-HOST_OVERRIDE("_ZN2nn5codec14StopVp9DecoderEPNS0_14Vp9DecoderTypeE", ov_vp9_ok);
+HOST_OVERRIDE("_ZN2nn5codec15StartVp9DecoderEPNS0_14Vp9DecoderTypeE", ov_vp9_start);
+HOST_OVERRIDE("_ZN2nn5codec14StopVp9DecoderEPNS0_14Vp9DecoderTypeE", ov_vp9_stop);
 HOST_OVERRIDE("_ZN2nn5codec15FlushVp9DecoderEPNS0_14Vp9DecoderTypeE", ov_vp9_flush);
 HOST_OVERRIDE("_ZN2nn5codec33GetVp9DecoderSubmissionReadyEventEPPNS_2os15SystemEventTypeEPNS0_14Vp9DecoderTypeE", ov_vp9_ready_event);
 HOST_OVERRIDE("_ZN2nn5codec27SubmitVp9DecoderInputBufferEPmPNS0_14Vp9DecoderTypeEPKvmNS_8TimeSpanEb", ov_vp9_submit);

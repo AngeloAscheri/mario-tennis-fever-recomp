@@ -15,5 +15,7 @@ Each one says `mtf-recomp` in a comment where it is.
 | `sdk/ov/ov_system.c` | Shared fonts decoded as the pl service keeps them (plain sfnt after the 8-byte header); oe's non-blocking message queue, its event, the default display resolution and its change event; no profile image | The engine passes the font's address straight to nn::fontll, which refused the encoded words (error 0x193). **Worth checking in mkw-recomp too**: its Chinese and Korean text reads the same fonts |
 | `gfx/nvn/api/nvn_api_state.c`, `nvn_obj.h`, `nvn_api_cmd.c`, `gfx/vk/exec/vk_exec*.c`, `vk_exec_xfer.c` | `nvnCommandBufferSetCopyImageStride`: a new op (appended, so older captures keep their numbers) and the buffer side's layer stride | Tennis sets it |
 | `sdk/ov/ov_input.c` | GetNpadState (one state), controller colours, hid settings that change nothing on the host | Same |
+| `sdk/ov/ov_codec.c` | The VP9 decoder's submission-ready event is manual clear and first signaled at `StartVp9Decoder` (then after each accepted Submit and each Acquire); an event pool per clear mode | The engine takes the same event as `movie::VideoDecoder`'s input-ready event and counts one input credit per signal once its decoder is started: the intro movie waited forever. **Worth checking in mkw-recomp too** (1.8.0's movie library) |
+| `core/diag/impcensus.c` | `MKW_IMPORT_CENSUS` counts the engine's (`basic`) calls into the SDK too | The game's own code is main and the engine |
 
 Names stay mkw-recomp's (`MKW_*` switches, `build/mkw`), so fixes can still travel both ways.
