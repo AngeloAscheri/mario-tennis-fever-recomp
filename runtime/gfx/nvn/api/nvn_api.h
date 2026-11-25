@@ -59,7 +59,16 @@ void nvn_submit_prepare_async(const uint64_t *handles, uint64_t *out, int n);
 int gfx_replay_async(void);                                // 1: the back end replays submissions on its own thread
 uint64_t gfx_replayed_submits(void);                       // newest submit number (nvn_submit_count) replayed
 #define NVN_HANDLE_TEX(h) ((int)((h) & 0xfffff))           // combined texture handle = texture id | sampler id << 20
-#define NVN_HANDLE_SAMP(h) ((int)(((h) >> 20) & 0xfff))
+#define NVN_HANDLE_SAMP(h) ((int)(((h) >> 20) & 0xffff))   // 16 bits in the replay: nvn_pool_base's ranges (the game's
+                                                           // handles hold 12)
+// mtf-recomp: each texture or sampler pool gets its own range of the back end's slot table, so two pools that use the
+// same ids keep their own descriptors (Mario Tennis Fever's movie library registers ids 256 and 257 of a pool of its
+// own; with one table they replaced the engine's font textures). The first pool of each kind gets base 0: a game with
+// one pool of each, as Mario Kart World, sees its ids unchanged. A pool never initialized (NULL) is base 0.
+int nvn_pool_base(const void *pool, int sampler);           // the pool's first slot in the back end's table
+uint64_t nvn_handle_in_pools(uint64_t h, const void *tex_pool, const void *samp_pool, int kind);
+                                                           // a bound handle to slot ids; kind 0 combined texture,
+                                                           // 1 separate sampler, 2 image or separate texture
 extern GfxStats gfx_counters;                              // behind gfx_stats(); add with __atomic_fetch_add. frames:
                                                            // the back end's present; nvn_calls/nvn_distinct: NVN_API
 // nvn_dstk.c (ctl drawstacks): draws counted by guest call stack and depth target for the next N frames

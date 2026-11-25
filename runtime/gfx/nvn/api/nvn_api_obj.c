@@ -22,9 +22,56 @@
 #include "platform/platform.h"
 
 // ---------- Descriptor pools
+// mtf-recomp: the range of the back end's slot table each pool takes (nvn_api.h nvn_pool_base). Entries are only added
+// (a pool object initialized again with more entries gets a new range), written before the count that publishes them,
+// so the replay threads read them without a lock.
+#define POOL_RANGES 64
+typedef struct { const void *pool; int base, n; } PoolRange;
+static PoolRange pool_ranges[2][POOL_RANGES];
+static int pool_count[2], pool_next[2];
+static PlatMutex pool_lock = PLAT_MUTEX_INIT;
+static const int pool_limit[2] = {1 << 20, 1 << 16};   // texture ids (the handle's 20 bits), samplers (16 in the replay)
+
+static void pool_range_add(const void *pool, int n, int sampler) {
+    plat_mutex_lock(&pool_lock);
+    int k = __atomic_load_n(&pool_count[sampler], __ATOMIC_RELAXED);
+    for (int i = k - 1; i >= 0; i--)
+        if (pool_ranges[sampler][i].pool == pool) {
+            if (n <= pool_ranges[sampler][i].n) { plat_mutex_unlock(&pool_lock); return; }
+            break;
+        }
+    if (k == POOL_RANGES) rt_fatal("nvn: more than %d %s pools", POOL_RANGES, sampler ? "sampler" : "texture");
+    int base = pool_next[sampler];
+    if (n < 0 || base + n > pool_limit[sampler])
+        rt_fatal("nvn: %s pools of %d + %d entries do not fit the slot table", sampler ? "sampler" : "texture", base, n);
+    pool_ranges[sampler][k] = (PoolRange){pool, base, n};
+    pool_next[sampler] = base + n;
+    __atomic_store_n(&pool_count[sampler], k + 1, __ATOMIC_RELEASE);
+    plat_mutex_unlock(&pool_lock);
+    if (k) rt_log("nvn: %s pool %d (%d entries) takes slots from %d", sampler ? "sampler" : "texture", k, n, base);
+}
+
+int nvn_pool_base(const void *pool, int sampler) {
+    if (!pool) return 0;
+    for (int i = __atomic_load_n(&pool_count[sampler], __ATOMIC_ACQUIRE) - 1; i >= 0; i--)
+        if (pool_ranges[sampler][i].pool == pool) return pool_ranges[sampler][i].base;
+    return 0;
+}
+
+uint64_t nvn_handle_in_pools(uint64_t h, const void *tex_pool, const void *samp_pool, int kind) {
+    if (!h) return 0;
+    int tb = nvn_pool_base(tex_pool, 0), sb = nvn_pool_base(samp_pool, 1);
+    if (!tb && !sb) return h;   // the first pools: the game's ids as they are
+    uint64_t tid = h & 0xfffff, sid = h >> 20 & 0xfff;
+    if (kind == 1) return sid ? (sid + (uint64_t)sb) << 20 : h;
+    if (kind == 2) return tid ? tid + (uint64_t)tb : h;
+    return (tid ? tid + (uint64_t)tb : 0) | (sid ? sid + (uint64_t)sb : 0) << 20;
+}
+
 // NVNboolean nvnTexturePoolInitialize(NVNtexturePool *tp, const NVNmemoryPool *p, ptrdiff_t offset, int n)
 NVN_API(nvnTexturePoolInitialize) {
     *(dpool_t *)arg_p(c, 0) = (dpool_t){arg_p(c, 1), (int64_t)arg_x(c, 2), (int32_t)arg_x(c, 3)};
+    pool_range_add(arg_p(c, 0), (int)arg_x(c, 3), 0);
     NVN_LOG("TexturePool n=%d", (int)arg_x(c, 3));
     ret_x(c, 1);
 }
@@ -32,11 +79,12 @@ NVN_API(nvnTexturePoolInitialize) {
 NVN_API(nvnTexturePoolFinalize) { (void)c; }
 // void nvnTexturePoolRegisterTexture(const NVNtexturePool *tp, int id, const NVNtexture *t, const NVNtextureView *v)
 NVN_API(nvnTexturePoolRegisterTexture) {
-    gfx_backend()->texture_register((int)arg_x(c, 1), arg_p(c, 2), arg_p(c, 3));
+    gfx_backend()->texture_register(nvn_pool_base(arg_p(c, 0), 0) + (int)arg_x(c, 1), arg_p(c, 2), arg_p(c, 3));
 }
 // NVNboolean nvnSamplerPoolInitialize(NVNsamplerPool *sp, const NVNmemoryPool *p, ptrdiff_t offset, int n)
 NVN_API(nvnSamplerPoolInitialize) {
     *(dpool_t *)arg_p(c, 0) = (dpool_t){arg_p(c, 1), (int64_t)arg_x(c, 2), (int32_t)arg_x(c, 3)};
+    pool_range_add(arg_p(c, 0), (int)arg_x(c, 3), 1);
     NVN_LOG("SamplerPool n=%d", (int)arg_x(c, 3));
     ret_x(c, 1);
 }
@@ -44,7 +92,7 @@ NVN_API(nvnSamplerPoolInitialize) {
 NVN_API(nvnSamplerPoolFinalize) { (void)c; }
 // void nvnSamplerPoolRegisterSampler(const NVNsamplerPool *sp, int id, const NVNsampler *s)
 NVN_API(nvnSamplerPoolRegisterSampler) {
-    gfx_backend()->sampler_register((int)arg_x(c, 1), &((const samp_t *)arg_p(c, 2))->p);
+    gfx_backend()->sampler_register(nvn_pool_base(arg_p(c, 0), 1) + (int)arg_x(c, 1), &((const samp_t *)arg_p(c, 2))->p);
 }
 
 // ---------- Texture builder

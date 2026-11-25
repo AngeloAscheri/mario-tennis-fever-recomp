@@ -181,14 +181,15 @@ static int settle(Pos *p, const uint64_t *handles, int n) {
     }
 }
 
-static void tid_note(const uint64_t *h, int n) {
+static void tid_note(const uint64_t *hs, int n, const void *tex_pool, const void *samp_pool) {
     for (int i = 0; i < n; i++) {
-        if (!h[i]) continue;
+        uint64_t h[1] = {nvn_handle_in_pools(hs[i], tex_pool, samp_pool, 0)};   // the slot, as bind_handles reads it
+        if (!h[0]) continue;
         if (P.ntid == P.ctid) {
             P.ctid = P.ctid ? P.ctid * 2 : 4096;
             if (!(P.tids = realloc(P.tids, sizeof *P.tids * (size_t)P.ctid))) rt_fatal("vk: out of memory (replay chunks)");
         }
-        P.tids[P.ntid++] = (uint32_t)(h[i] & 0xfffff);   // the slot id (vk_exec_bind.c tex_info)
+        P.tids[P.ntid++] = (uint32_t)(h[0] & 0xfffff);   // the slot id (vk_exec_bind.c tex_info)
     }
 }
 
@@ -243,8 +244,10 @@ static void publish(int upto) {
 // Ops the walk cannot leave once chunks are handed out, counted first (one pass over the submission, no state): a
 // samples-passed report or reset (serial), the queue switches (cuts kept for them) and the arrays' sizes (no realloc
 // while threads read them); it notes the texture slots for the check ahead, too. 0: the submission stays serial.
-static int prescan(const Pos *from, const uint64_t *handles, int n, int *nupd, int *ncond, int *nqueue) {
+static int prescan(const VkExec *ex, const Pos *from, const uint64_t *handles, int n, int *nupd, int *ncond,
+                   int *nqueue) {
     Pos p = *from;
+    const void *tex_pool = ex->tex_pool, *samp_pool = ex->samp_pool;   // followed through the submission
     *nupd = *ncond = *nqueue = 0;
     while (settle(&p, handles, n)) {
         const op_hdr *h = p.h;
@@ -253,10 +256,12 @@ static int prescan(const Pos *from, const uint64_t *handles, int n, int *nupd, i
         case OP_UPDATE_UB: ++*nupd; break;
         case OP_RENDER_COND: ++*ncond; break;
         case OP_QUEUE: ++*nqueue; break;
+        case OP_SET_TEX_POOL: tex_pool = ((const p_set_pool *)nvn_op_payload(h))->pool; break;
+        case OP_SET_SAMP_POOL: samp_pool = ((const p_set_pool *)nvn_op_payload(h))->pool; break;
         case OP_BIND_TEX:
             if (P.precheck) {
                 const p_bind_handles *b = nvn_op_payload(h);
-                tid_note(b->h, b->n < 0 ? 0 : b->n > 32 ? 32 : b->n);
+                tid_note(b->h, b->n < 0 ? 0 : b->n > 32 ? 32 : b->n, tex_pool, samp_pool);
             }
             break;
         case OP_REPORT_COUNTER:
@@ -331,8 +336,8 @@ static int head_end(const Pos *at, const VkExec *w, int draws) {
     int nupd, ncond, nq;
     P.ntid = P.pre_from = 0;
     if (P.precheck)
-        for (int s = 0; s < NVN_BIND_STAGES; s++) tid_note(w->tex[s], 128);
-    if (!prescan(at, P.handles, P.n, &nupd, &ncond, &nq)) return 0;
+        for (int s = 0; s < NVN_BIND_STAGES; s++) tid_note(w->tex[s], 128, NULL, NULL);   // bound: slot ids already
+    if (!prescan(w, at, P.handles, P.n, &nupd, &ncond, &nq)) return 0;
     if (P.precheck) precheck();
     nupd += P.nupd, ncond += P.ncond;
     if (nupd > P.cupd && !(P.upd = realloc(P.upd, sizeof *P.upd * (size_t)(P.cupd = nupd + 1024))))
@@ -368,7 +373,7 @@ static int plan(const VkExec *ex0, const uint64_t *handles, int n, int C) {
     P.wq.n = 0, P.wq.cur = 0;   // as the serial replay's, per submission (vk_exec_record)
     if (!P.pipe_now) P.ntid = P.pre_from = 0;   // (with it, prescan noted and checked them all)
     if (P.precheck && !P.pipe_now)
-        for (int s = 0; s < NVN_BIND_STAGES; s++) tid_note(ex0->tex[s], 128);
+        for (int s = 0; s < NVN_BIND_STAGES; s++) tid_note(ex0->tex[s], 128, NULL, NULL);   // bound: slot ids already
     Pos p = {0, 0, nvn_op_first(handles[0]), {0}};
     chunk_add(&p, w);
     int draws = 0, in_chunk = 0;
@@ -442,7 +447,7 @@ static int plan(const VkExec *ex0, const uint64_t *handles, int n, int C) {
         case OP_BIND_TEX:
             if (P.precheck && !P.pipe_now) {
                 const p_bind_handles *b = a;
-                tid_note(b->h, b->n < 0 ? 0 : b->n > 32 ? 32 : b->n);
+                tid_note(b->h, b->n < 0 ? 0 : b->n > 32 ? 32 : b->n, w->tex_pool, w->samp_pool);
             }
             vk_exec_bind_state(w, h->op, a);
             break;
@@ -747,9 +752,9 @@ int vk_exec_par(VkExec *ex, const uint64_t *handles, int n, int diag) {
         int nupd, ncond, nq;
         P.ntid = P.pre_from = 0;
         if (P.precheck)
-            for (int s = 0; s < NVN_BIND_STAGES; s++) tid_note(ex->tex[s], 128);
+            for (int s = 0; s < NVN_BIND_STAGES; s++) tid_note(ex->tex[s], 128, NULL, NULL);   // bound: slot ids already
         Pos p0 = {0, 0, nvn_op_first(handles[0]), {0}};
-        if (!prescan(&p0, handles, n, &nupd, &ncond, &nq)) return 0;
+        if (!prescan(ex, &p0, handles, n, &nupd, &ncond, &nq)) return 0;
         // Every slot checked here, before any chunk is out: checked chunk by chunk during the walk, the check held
         // tex_lock while the threads recorded, 298 ms a second of their sleeps, and chunk 0's 60 draws took 3.3 ms
         // instead of ~1.2 (lk62, 16/11/2026).

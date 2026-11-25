@@ -357,7 +357,7 @@ static VkSampler make_sampler(VkCtx *c, const samp_par *d) {
 }
 
 void vk_sampler_register(int id, const samp_par *s) {
-    if (id < 0 || id >= (1 << 12)) rt_fatal("vk: sampler slot %d out of range", id);
+    if (id < 0 || id >= (1 << 16)) rt_fatal("vk: sampler slot %d out of range", id);   // nvn_pool_base's ranges
     lock();
     if (id >= nsslots) {
         int n = nsslots ? nsslots : 256;

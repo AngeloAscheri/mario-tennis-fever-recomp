@@ -42,7 +42,11 @@ The open work, in order. Each item becomes one or more issues; the issue says wh
 
 - [x] The intro movie plays (VP9 through main's `movie::` library and the SDK's `nn::movie` extractor, decoded with
       libvpx) and the title screen draws on Vulkan.
-- [ ] The title screen's text: its glyphs come out as white blocks.
+- [x] The title screen's text samples its font (it read the movie's texture: two texture pools shared one slot table).
+- [ ] Only some characters of the title screen's text are drawn; the button icons are "?" (the stand-in fonts).
+- [ ] Some movie frames show blocks of an older picture (the VP9 decode or its frame order).
+- [ ] After the title screen (A): `CallCommands with a null handle` from `basic+0x11a6b38`, an entry of the engine's
+      cache of recorded commands that was never filled.
 - [ ] Some runs skip the movie and show a black screen with a few glyphs instead: find what decides it.
 
 ## F5 — Playable

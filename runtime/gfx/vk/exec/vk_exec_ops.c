@@ -433,12 +433,14 @@ static void op_update_ub(VkExec *ex, const p_update_ub *u) {
 
 // ---- bind ops
 
-static void bind_handles(uint64_t *dst, int cap, const p_bind_handles *b) {
+// kind: nvn_handle_in_pools's (0 combined texture, 1 separate sampler, 2 image or separate texture). mtf-recomp: the ids
+// are read in the pools bound now, as the GPU reads them (a game with two pools of either kind).
+static void bind_handles(const VkExec *ex, uint64_t *dst, int cap, const p_bind_handles *b, int kind) {
     if (b->stage < 0 || b->stage >= NVN_BIND_STAGES || b->first < 0 || b->n < 0 || b->n > 32 || b->first + b->n > cap) {
         warn_once(W_BIND, "a bind of %d handles at %d of stage %d is out of range: ignored", b->n, b->first, b->stage);
         return;
     }
-    memcpy(&dst[b->first], b->h, sizeof(uint64_t) * (size_t)b->n);
+    for (int i = 0; i < b->n; i++) dst[b->first + i] = nvn_handle_in_pools(b->h[i], ex->tex_pool, ex->samp_pool, kind);
 }
 
 // DrawMeshTasks without VK_EXT_mesh_shader: the task program (if any) and the mesh
@@ -576,18 +578,18 @@ int vk_exec_bind_state(VkExec *ex, uint32_t op, const void *payload) {
     }
     case OP_BIND_TEX: {
         const p_bind_handles *b = payload;
-        bind_handles(b->stage >= 0 && b->stage < NVN_BIND_STAGES ? ex->tex[b->stage] : NULL, 128, b);
+        bind_handles(ex, b->stage >= 0 && b->stage < NVN_BIND_STAGES ? ex->tex[b->stage] : NULL, 128, b, 0);
         ex->tex_serial++;
         break;
     }
     case OP_BIND_SAMP: {
         const p_bind_handles *b = payload;
-        bind_handles(b->stage >= 0 && b->stage < NVN_BIND_STAGES ? ex->samp[b->stage] : NULL, 128, b);
+        bind_handles(ex, b->stage >= 0 && b->stage < NVN_BIND_STAGES ? ex->samp[b->stage] : NULL, 128, b, 1);
         break;
     }
     case OP_BIND_IMG: {
         const p_bind_handles *b = payload;
-        bind_handles(b->stage >= 0 && b->stage < NVN_BIND_STAGES ? ex->img[b->stage] : NULL, 32, b);
+        bind_handles(ex, b->stage >= 0 && b->stage < NVN_BIND_STAGES ? ex->img[b->stage] : NULL, 32, b, 2);
         ex->tex_serial++;   // feedback_scan reads only textures: a rescan at most
         break;
     }

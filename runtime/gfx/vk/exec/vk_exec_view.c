@@ -448,7 +448,7 @@ void tex_info_full(VkExec *ex, const GfxShaderRes *r, uint64_t h, int storage, i
         if (!storage && !separate) {
             // A depth texture sampled without a compare reads one texel on the Switch, whatever the sampler's filter:
             // blending neighbouring depths puts reconstructed positions in mid-air at object edges (shadow masks).
-            int sid = (int)(h >> 20 & 0xfff);
+            int sid = NVN_HANDLE_SAMP(h);   // 16 bits: bind_handles put it in its pool's range
             int point = img && (img->aspect & VK_IMAGE_ASPECT_DEPTH_BIT) && !(r->type & 0x400) &&
                         vk_exec_view_aspect(img, &v, hv) != VK_IMAGE_ASPECT_STENCIL_BIT;
             samp = point ? vk_sampler_point_by_id_locked(sid) : vk_sampler_by_id_locked(sid);
