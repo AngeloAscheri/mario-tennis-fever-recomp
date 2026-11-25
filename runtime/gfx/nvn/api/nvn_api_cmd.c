@@ -421,8 +421,12 @@ NVN_API(nvnCommandBufferIsRecording) { ret_x(c, cmd_of(c)->recording != 0); }
 // so a handle may be gone by the time the caller is submitted. Deferred binds stay deferred. A copy is OP_BEGIN, its
 // records and OP_END (flatten_recording checked them), so the records go over as one block; usage grows by the same
 // bytes as record by record.
-static void inline_recording(cmd_t *o, uint64_t handle, const char *what) {
-    if (!handle) rt_fatal("nvn: %s with a null handle", what);
+static void inline_recording(const Cpu *c, cmd_t *o, uint64_t handle, const char *what, int i, int n) {
+    if (!handle) {   // the caller and the entry, to find which recording the game never made (mtf-recomp)
+        char w[128];
+        ldr_describe(c->x[30], w, sizeof w);
+        rt_fatal("nvn: %s with a null handle (entry %d of %d) from %s", what, i, n, w);
+    }
     uint64_t bytes = copy_touch(handle, __atomic_load_n(&nsubmits, __ATOMIC_RELAXED), what);
     if (bytes <= 16) return;
     size_t body = (size_t)bytes - 16;
@@ -438,13 +442,13 @@ NVN_API(nvnCommandBufferCallCommands) {
     cmd_t *o = cmd_of(c);
     int n = (int)arg_x(c, 1);
     const uint64_t *h = arg_p(c, 2);
-    for (int i = 0; i < n; i++) inline_recording(o, h[i], "CallCommands");
+    for (int i = 0; i < n; i++) inline_recording(c, o, h[i], "CallCommands", i, n);
 }
 NVN_API(nvnCommandBufferCopyCommands) {
     cmd_t *o = cmd_of(c);
     int n = (int)arg_x(c, 1);
     const uint64_t *h = arg_p(c, 2);
-    for (int i = 0; i < n; i++) inline_recording(o, h[i], "CopyCommands");
+    for (int i = 0; i < n; i++) inline_recording(c, o, h[i], "CopyCommands", i, n);
 }
 
 // ---------- CommandBuffer: commands with CPU-visible results (performed by the back end in GPU order)
