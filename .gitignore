@@ -1,6 +1,9 @@
-build/
+# Anchored: tools/build/ is source and must stay versioned
+/build/
 generated/
-game/
+/game/
+# mkw-recomp's translations of Mario Kart World's texts, imported with the runtime: not used by Tennis
+i18n/game/
 .venv/
 __pycache__/
 *.pyc
