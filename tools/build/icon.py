@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Draws the icon of mkw.exe by code (our own: a checkered flag on a rounded square, no art of the game) and writes it as
+"""Draws the icon of mkw.exe by code (our own: a tennis ball on a court-green rounded square, no art of the game;
+mtf-recomp's, in place of mkw-recomp's checkered flag) and writes it as
 an .ico with PNG images of 256, 48, 32 and 16 pixels. tools/build/build.py --target windows calls it before the
 resource (runtime/platform/mkw.rc names "mkw.ico"); the file is made in build/, never committed. With an .svg name it
-writes the same drawing as vector shapes instead (the repo's logo, docs/images/logo.svg: text, so it can be versioned); with a
+writes the same drawing as vector shapes instead (text, so it can be versioned); with a
 .png name, one 256-pixel image (the Linux AppImage's icon, tools/build/release.py); with a .c name, the C source of
 app_icon_set(SDL_Window *), which gives the window a 128-pixel copy (build.py, every target): Wayland compositors with
 xdg_toplevel_icon (KWin) show it in the taskbar instead of a generic icon when no desktop file matches the app id.
@@ -16,8 +17,11 @@ import sys
 import zlib
 from pathlib import Path
 
-BG_TOP, BG_BOTTOM = (36, 84, 196), (18, 38, 110)   # blue, lighter at the top
-POLE = (235, 235, 240)
+BG_TOP, BG_BOTTOM = (46, 150, 84), (20, 86, 48)   # court green, lighter at the top
+BALL, BALL_DARK = (214, 232, 52), (150, 176, 20)   # the ball's felt, lit from the top left
+SEAM = (250, 250, 245)
+BALL_C, BALL_R = (0.5, 0.5), 0.33                  # the ball in the unit square
+SEAM_DX, SEAM_R, SEAM_W = 0.45, 0.30, 0.028        # each seam: an arc of a circle centred beside the ball
 
 
 def coverage(x: float, y: float) -> tuple[int, int, int, int]:
@@ -26,15 +30,14 @@ def coverage(x: float, y: float) -> tuple[int, int, int, int]:
     cx, cy = min(max(x, r), 1 - r), min(max(y, r), 1 - r)
     if (x - cx) ** 2 + (y - cy) ** 2 > r * r:
         return (0, 0, 0, 0)
-    # the flag: 4x3 checks on a waving cloth between the pole and the right side
-    fx, fy = (x - 0.30) / 0.52, y - 0.20 - 0.045 * math.sin(x * 2 * math.pi * 1.1)
-    if 0 <= fx <= 1 and 0 <= fy <= 0.42:
-        light = (int(fx * 4) + int(fy / 0.42 * 3)) % 2 == 0
-        shade = 1 - 0.18 * math.cos(x * 2 * math.pi * 1.1)   # folds of the cloth
-        c = (250, 250, 250) if light else (20, 20, 24)
-        return (*[min(255, int(v * shade)) for v in c], 255)
-    if 0.24 <= x <= 0.30 and 0.16 <= y <= 0.86:   # the pole
-        return (*POLE, 255)
+    bx, by = x - BALL_C[0], y - BALL_C[1]
+    d = math.hypot(bx, by)
+    if d <= BALL_R:
+        for side in (-1, 1):   # the two seams
+            if abs(math.hypot(bx - side * SEAM_DX, by) - SEAM_R) <= SEAM_W / 2:
+                return (*SEAM, 255)
+        t = min(1.0, max(0.0, 0.5 + (bx + by) / (2.4 * BALL_R)))   # 0 at the lit top left, 1 at the far side
+        return (*[int(a + (b - a) * t) for a, b in zip(BALL, BALL_DARK)], 255)
     t = y
     return (*[int(a + (b - a) * t) for a, b in zip(BG_TOP, BG_BOTTOM)], 255)
 
@@ -67,35 +70,24 @@ def png(size: int) -> bytes:
     return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", head) + chunk(b"IDAT", zlib.compress(render(size), 9)) + chunk(b"IEND", b"")
 
 
-def wave(x: float) -> float:
-    """The cloth's vertical offset at x, as in coverage()."""
-    return 0.045 * math.sin(x * 2 * math.pi * 1.1)
-
-
 def svg() -> str:
-    """The icon as SVG in a 256-unit square: each check a polygon whose edges follow the wave."""
-    s, steps = 256, 8
-
-    def pt(fx: float, fy: float) -> str:
-        x = 0.30 + 0.52 * fx
-        return f"{x * s:.1f},{(0.20 + wave(x) + fy) * s:.1f}"
-
-    top, bottom = "#%02x%02x%02x" % BG_TOP, "#%02x%02x%02x" % BG_BOTTOM
+    """The icon as SVG in a 256-unit square: the ball a circle, its seams two circles clipped to it."""
+    s = 256
+    hexc = lambda c: "#%02x%02x%02x" % c   # noqa: E731
+    cx, cy, br = BALL_C[0] * s, BALL_C[1] * s, BALL_R * s
     out = [
         f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {s} {s}" width="{s}" height="{s}">',
-        f'<defs><linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="{top}"/>'
-        f'<stop offset="1" stop-color="{bottom}"/></linearGradient></defs>',
+        f'<defs><linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="{hexc(BG_TOP)}"/>'
+        f'<stop offset="1" stop-color="{hexc(BG_BOTTOM)}"/></linearGradient>'
+        f'<linearGradient id="ball" x1="0" y1="0" x2="1" y2="1"><stop offset="0.2" stop-color="{hexc(BALL)}"/>'
+        f'<stop offset="1" stop-color="{hexc(BALL_DARK)}"/></linearGradient>'
+        f'<clipPath id="in"><circle cx="{cx:.1f}" cy="{cy:.1f}" r="{br:.1f}"/></clipPath></defs>',
         f'<rect width="{s}" height="{s}" rx="{0.18 * s:.1f}" fill="url(#bg)"/>',
-        f'<rect x="{0.24 * s:.1f}" y="{0.16 * s:.1f}" width="{0.06 * s:.1f}" height="{0.70 * s:.1f}" '
-        'fill="#ebebf0"/>',
+        f'<circle cx="{cx:.1f}" cy="{cy:.1f}" r="{br:.1f}" fill="url(#ball)"/>',
     ]
-    for row in range(3):
-        for col in range(4):
-            x0, x1, y0, y1 = col / 4, (col + 1) / 4, row * 0.14, (row + 1) * 0.14
-            xs = [x0 + (x1 - x0) * i / steps for i in range(steps + 1)]
-            points = [pt(x, y0) for x in xs] + [pt(x, y1) for x in reversed(xs)]
-            fill = "#fafafa" if (col + row) % 2 == 0 else "#141418"
-            out.append(f'<polygon points="{" ".join(points)}" fill="{fill}"/>')
+    for side in (-1, 1):
+        out.append(f'<circle cx="{cx + side * SEAM_DX * s:.1f}" cy="{cy:.1f}" r="{SEAM_R * s:.1f}" fill="none" '
+                   f'stroke="{hexc(SEAM)}" stroke-width="{SEAM_W * s:.1f}" clip-path="url(#in)"/>')
     return "\n".join([*out, "</svg>", ""])
 
 

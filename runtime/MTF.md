@@ -17,5 +17,6 @@ Each one says `mtf-recomp` in a comment where it is.
 | `sdk/ov/ov_input.c` | GetNpadState (one state), controller colours, hid settings that change nothing on the host | Same |
 | `sdk/ov/ov_codec.c` | The VP9 decoder's submission-ready event is manual clear and first signaled at `StartVp9Decoder` (then after each accepted Submit and each Acquire); an event pool per clear mode | The engine takes the same event as `movie::VideoDecoder`'s input-ready event and counts one input credit per signal once its decoder is started: the intro movie waited forever. **Worth checking in mkw-recomp too** (1.8.0's movie library) |
 | `core/diag/impcensus.c` | `MKW_IMPORT_CENSUS` counts the engine's (`basic`) calls into the SDK too | The game's own code is main and the engine |
+| `gfx/nvn/host/gfx_window_sdl.c`, `tools/build/icon.py` | Window title "Mario Tennis Fever Recomp", Wayland app id `mtf-recomp`, a tennis-ball icon | With mkw-recomp installed the desktop showed the window as Mario Kart World |
 
 Names stay mkw-recomp's (`MKW_*` switches, `build/mkw`), so fixes can still travel both ways.

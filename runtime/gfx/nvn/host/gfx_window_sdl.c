@@ -249,7 +249,8 @@ static void window_main(void *arg) {
     // compositor rule can keep them from taking the focus without touching the player's window (KWin ignores
     // NOT_FOCUSABLE on a new window: tools/run/kwin-rule.sh).
     const char *bg = cfg_get("MKW_BACKGROUND_WINDOW");
-    SDL_SetHint(SDL_HINT_APP_ID, bg && strcmp(bg, "0") ? "mkw-recomp-run" : "mkw-recomp");
+    // mtf-recomp: ids of its own, so a desktop with mkw-recomp installed does not show this window as Mario Kart World
+    SDL_SetHint(SDL_HINT_APP_ID, bg && strcmp(bg, "0") ? "mtf-recomp-run" : "mtf-recomp");
     SDL_SetHint(SDL_HINT_VIDEO_ALLOW_SCREENSAVER, "0");
     const char *steam_drv = steam_video_driver();   // started by Steam on a Wayland desktop, SDR: XWayland
     if (steam_drv) SDL_SetHint(SDL_HINT_VIDEO_DRIVER, steam_drv);
@@ -327,7 +328,7 @@ static void open_window(void *arg) {
     const char *bg = cfg_get("MKW_BACKGROUND_WINDOW");
     int background = bg && strcmp(bg, "0"), hidden = bg && !strcmp(bg, "hidden");
     if (background) SDL_SetHint(SDL_HINT_WINDOW_ACTIVATE_WHEN_SHOWN, "0");
-    g_win = SDL_CreateWindow("MKW Recomp", w, h,
+    g_win = SDL_CreateWindow("Mario Tennis Fever Recomp", w, h,   // mtf-recomp: the window's title
                              SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY |
                                  (background ? SDL_WINDOW_NOT_FOCUSABLE : 0) | (hidden ? SDL_WINDOW_HIDDEN : 0));
     if (!g_win) {
