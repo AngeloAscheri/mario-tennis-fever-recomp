@@ -58,11 +58,11 @@ The open work, in order. Each item becomes one or more issues; the issue says wh
       come out with them.
 - [ ] The shadow cascades' viewports exceed `maxViewportDimensions` (Vulkan validation): fine on RADV, check other
       drivers; a fix would scale the transform in the geometry stage.
-- [ ] Tessellation: 128 programs with tessellation and geometry stages are registered, none drawn up to the
-      tutorial's court. The free match (`tools/run/scripts/match.txt`) draws one, indirect, a frame: VS, TCS, TES,
-      a full geometry program and FS, most likely the grass's blades
-      ([research.md](research.md#past-the-tutorial-a-free-match-27112026)). Translating it needs TCS, TES and
-      geometry programs that emit their own vertices.
+- [x] Tessellation: the free match (`tools/run/scripts/match.txt`) draws one program a frame with TCS, TES and a
+      geometry stage that emits its own vertices: the grass blades around the players' feet. Translated and drawn
+      ([research.md](research.md#tessellation-27112026)); 128 such programs are registered, the others not yet met.
+- [ ] An FS of the free match samples a 2D `R16G16_UNORM` texture with a depth compare (Vulkan validation
+      VUID-vkCmdDrawIndexed-None-06479; the runtime has no depth twin for that format).
 - [ ] A compute program whose texture handle comes from a uniform register (`tex_scr_urc_`) does not translate.
 - [ ] One frame of the main menu's transition into Historia is solid blue.
 - [ ] A cutscene of Historia's intro stayed half-way through a cross-fade between two shots for 20 s in one run.

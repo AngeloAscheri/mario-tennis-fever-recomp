@@ -175,6 +175,34 @@ per-patch attributes, two texture samples), TES, a full geometry program (528 in
 that do not translate are that geometry program and a compute program whose texture handle comes from a uniform
 register (`tex_scr_urc_`).
 
+### Tessellation (27/11/2026)
+
+The free match's grass draws, once a frame, an indirect draw of 4-point patches through VS, TCS, TES, a geometry
+program and FS into the G-buffer: tufts of grass blades around the players' feet (with it the grass rises over
+Mario's soles; without it it is flat). The TCS reads vertices 0 and 2, samples two array textures for a level and
+writes it to all six tessellation levels and to per-patch word 0x18; the TES interpolates the four corners with
+gl_TessCoord and passes 0x18 on; the geometry program turns each triangle into a 4-vertex strip.
+
+What the translation rests on (sm86/translate/glsl mem.py vtg_attr, head.py vtg_head):
+
+- ISBERD gives the input vertex's ISBE offset, which ALD's Rb then indexes gl_in[] and in_attr<L>[] by; with the
+  primitive index taken as 0 (SR_INVOCATION_INFO's low byte) that is the vertex index (Ryujinx, MIT). The info word's
+  bits 16-23 are the vertices of a patch (TCS, TES) or input primitive (GS).
+- ALD/AST.P reach the per-patch words: 0x00-0x0c outer levels, 0x10-0x14 inner, 0x18 up the user's vec4s. They take
+  Locations from 31 down, since per-patch and per-vertex variables may not share one in Vulkan and the translator sees
+  one program at a time. A TCS writes gl_out[gl_InvocationID] and reads outputs back with ALD.O.
+- A TES's domain, spacing and winding are not in its code: the driver loads SET_TESSELLATION_PARAMETERS from the
+  control section's +0x5c (0x202 here: quads, integer spacing, triangles CW, per NVIDIA's clb197.h, MIT). Vulkan's
+  `cw` with the default upper-left domain origin is the hardware's TRIANGLES_CW (Mesa NVK, MIT).
+- A 128-bit ALD may name its vertex register among its destinations (`ALD.128 R4, a[0x70], R4`): every word is read
+  before any is written, as LDG already did.
+
+The runtime (vk_pipeline.c create_graphics) builds such pipelines whole, one descriptor set, bindings in pipeline
+order; NVN's patch size is recorded (OP_PATCH_SIZE). Each stage's gl_in block is fitted to the stage before's output
+block (vk_spirv_patch.c spirv_gs_adapt, inputs only): the vertex stage's ClipDistance and CullDistance for the TCS, none
+for the TES and the geometry stage, whose blocks the translator writes without them. Vulkan validation passes on the
+match (2044 of 2044 draws).
+
 ### Open questions
 
 1. Where does the engine keep its shaders? `nvnProgramSetShaders` is imported; the `sysCustomShader*` names suggest a
