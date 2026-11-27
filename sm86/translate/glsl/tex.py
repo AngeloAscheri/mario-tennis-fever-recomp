@@ -164,8 +164,10 @@ class TexOps:
         vec = coords[0] if len(coords) == 1 else f"vec{len(coords)}({', '.join(coords)})"
         sampler = f"sampler{name}{'Shadow' if dc else ''}"
         self.textures[key] = sampler
-        if dc and lod == "LL":
-            self.uses_shadow_lod = True  # textureLod on array and cube shadow samplers
+        if dc and lod in ("LL", "LB"):
+            # textureLod, and texture with a bias (mtf-recomp: three of Mario Tennis Fever's programs), on array and
+            # cube shadow samplers
+            self.uses_shadow_lod = True
         if ptp:
             # One offset per texel: 4 signed bytes x, y per texel in two registers (Mesa NAK nak_nir_lower_tex.c:309-316).
             # Texel k is the (i0, j0) texel (.w) of a gather at offset k, as GLSL's textureGatherOffsets defines it;
