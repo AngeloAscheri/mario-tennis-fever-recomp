@@ -5,7 +5,7 @@ from typing import ClassVar
 
 from program import Insn
 
-from glsl.common import PT, RZ, URZ, Unsupported, multi_load, pred, reg
+from glsl.common import PT, RZ, URZ, Unsupported, multi_load, own_pred, pred, reg
 
 
 class ThreadOps:
@@ -236,7 +236,7 @@ class ThreadOps:
         if self.stage != "ps":
             # a predicated EXIT of a program with BAR (Builder.zombie): the lane goes on as exited; the unconditional
             # one at the end still returns, as every lane reaching it does
-            predicated = i.v("Pg", PT) != PT or i.v("Pg@not", 0)
+            predicated = i.v("Pg", PT) != PT or i.v("Pg@not", 0) or own_pred(i) is not None
             return "exited = true;" if self.zombie and predicated else "return;"
         # Each target with any component takes four registers, component c in base + c, written or not (Ryujinx
         # EmitterContext.PrepareForReturn, MIT; eden-nx2 exit_program.cpp): packing the written ones read the wrong

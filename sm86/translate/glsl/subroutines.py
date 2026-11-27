@@ -12,13 +12,16 @@ import re
 
 from program import Insn
 
-from glsl.common import PT
+from glsl.common import PT, own_pred
 
 # what a body may not hold: its only branches are forward jumps inside it
 STOP = {"BRX", "BRXU", "CALL", "RET", "EXIT", "BSSY", "BSYNC", "BREAK", "WARPSYNC", "BPT", "KILL"}
 
 
-def _plain(i: Insn) -> bool:
+def plain(i: Insn) -> bool:
+    """Unconditional: no guard, and no predicate operand of its own on a BRA or EXIT (`EXIT P1`)."""
+    if i.op in ("BRA", "EXIT") and own_pred(i) is not None:
+        return False
     return i.v("Pg", PT) == PT and not i.v("Pg@not", 0) and i.v("UPg", PT) == PT and not i.v("UPg@not", 0)
 
 
@@ -45,20 +48,20 @@ def calls(insns: list[Insn]) -> dict[int, tuple[int, int]] | None:
     for c in call_ks:
         call = insns[c]
         t = index.get(call.pc + 16 + 4 * call.sv("Sa"))
-        if t is None or t == 0 or c == 0 or not _plain(call):
+        if t is None or t == 0 or c == 0 or not plain(call):
             return None
         before = insns[t - 1]
-        if before.op not in ("EXIT", "BRA", "RET") or not _plain(before):
+        if before.op not in ("EXIT", "BRA", "RET") or not plain(before):
             return None
         r = next((k for k in range(t, len(insns)) if insns[k].op in STOP), None)
-        if r is None or r not in rets or not _plain(insns[r]) or insns[r].sym("addr") != "REL":
+        if r is None or r not in rets or not plain(insns[r]) or insns[r].sym("addr") != "REL":
             return None
         for k in range(t, r):
             if insns[k].op == "BRA":
                 dest = index.get(_branch_target(insns[k]))
                 if dest is None or not k < dest <= r:
                     return None
-        if insns[c - 1].cls != "mov__RI" or not _plain(insns[c - 1]):
+        if insns[c - 1].cls != "mov__RI" or not plain(insns[c - 1]):
             return None
         out[c] = (t, r)
     bodies = {(t, r) for t, r in out.values()}
@@ -85,7 +88,7 @@ def returns(insns: list[Insn], stmts: list[str], inline: dict[int, tuple[int, in
         last = next((k for k in range(r - 1, t - 1, -1) if _writes(stmts[k], reg)), None)
         if last is not None:
             mov = insns[last]
-            if mov.cls != "mov__RR" or not _plain(mov) or max(joins) > last:
+            if mov.cls != "mov__RR" or not plain(mov) or max(joins) > last:
                 return False
             if any(insns[k].op == "BRA" for k in range(last, r)):
                 return False

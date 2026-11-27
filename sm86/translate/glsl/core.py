@@ -21,7 +21,7 @@ from program import Insn, Sph
 
 from glsl import first_store, subroutines
 from glsl.alu import AluOps
-from glsl.common import FMUL_SCALE, MUFU, PT, RZ, TURNS, URZ, Unsupported, pred, reg
+from glsl.common import FMUL_SCALE, MUFU, PT, RZ, TURNS, URZ, Unsupported, own_pred, pred, reg
 from glsl.head import (
     MESH_MAIN,
     MESH_MAIN_CS,
@@ -283,7 +283,12 @@ class Builder(AluOps, MemOps, TexOps, ThreadOps):
         if op in ("ISBEWR", "ISBERD") and self.mesh:
             return self.mesh_isbe(i)
         if op == "EXIT":
-            return self.exit(i)
+            # EXIT's own predicate operand, as BRA's: `@!P0 EXIT P1` ends only the lanes where both hold. Mario Tennis
+            # Fever's court (mtf-recomp) kills the texels under its alpha threshold with `@P1 KILL` and exits those
+            # lanes so; on the guard alone the lanes below the threshold that were not killed also exited, writing
+            # their registers' 0 as albedo and normal: the black specks on the grass.
+            stmt, pp = self.exit(i), own_pred(i)
+            return f"if ({pp}) {{ {stmt} }}" if pp else stmt
         if self.stage == "gs" and op in ("LEPC", "BMOV", "OUT"):
             return self.gs_epilogue(i)
         raise Unsupported(i.cls)
@@ -324,7 +329,7 @@ def inline_single_call(insns: list[Insn]) -> list[Insn]:
     t = next((k for k, i in enumerate(insns) if i.pc == target), None)
     if t is None or not (c < t <= r or r < c):  # body after the call site, or wholly before it
         return insns
-    if t <= c <= r or t == 0 or insns[t - 1].op not in ("EXIT", "BRA") or insns[t - 1].v("Pg", PT) != PT:
+    if t <= c <= r or t == 0 or insns[t - 1].op not in ("EXIT", "BRA") or not subroutines.plain(insns[t - 1]):
         return insns
     body = range(t, r)
     lo, hi = insns[t].pc, ret.pc
@@ -481,7 +486,7 @@ def translate(
             # BRA's own predicate operand (`@!P2 BRA P4, target`): the jump is taken when the guard and it both hold
             # (eden-nx2 lower_to_maxwell.h:2178-2193). Dropped, 612 jumps in 317 programs went on the guard alone: the
             # wave simulation's atan2 skipped the kx = 0 column and filled its FFT with NaN (01/11/2026).
-            pp = pred(i.v("Pp"), i.v("Pp@not")) if i.has("Pp") and (i.v("Pp", PT) != PT or i.v("Pp@not", 0)) else None
+            pp = own_pred(i)
             if pp and target != i.pc:
                 stmt = f"if ({pp}) {stmt}"
             if target != i.pc:

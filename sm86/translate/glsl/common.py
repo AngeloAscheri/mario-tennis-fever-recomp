@@ -188,6 +188,15 @@ def pred(n: int, neg: int = 0, u: bool = False) -> str:
     return f"!{p}" if neg else p
 
 
+def own_pred(i) -> str | None:
+    """The condition of a BRA's or EXIT's own predicate operand (`@!P2 BRA P4, target`, `@!P0 EXIT P1`), which must
+    hold together with the guard (eden-nx2 lower_to_maxwell.h:2178-2193); None when it is PT. KILL's, VOTE's and SEL's
+    Pp are operands their own translation reads."""
+    if not i.has("Pp") or (i.v("Pp", PT) == PT and not i.v("Pp@not", 0)):
+        return None
+    return pred(i.v("Pp"), i.v("Pp@not"))
+
+
 def fbits(x: int) -> str:
     """A float immediate given as its bit pattern, as an exact GLSL float."""
     return f"uintBitsToFloat({x:#x}u)"
