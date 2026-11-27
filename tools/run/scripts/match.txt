@@ -1,0 +1,53 @@
+# MKW_INPUT_SCRIPT: from a new save to a free match, Mario against Donkey Kong (CPU, intermediate) on the stadium's
+# grass court. Ticks are 60 Hz game time from the first present (runtime/input/input_script.c). Needs a profile with no
+# save: the first start goes through the tutorial. Timings measured on 327680 (27/11/2026).
+# Intro movie, title screen, the tutorial's first messages
+300 A 6
+360 A 6
+420 A 6
+480 A 6
+540 A 6
+600 A 6
+660 A 6
+720 A 6
+# end the tutorial: "Terminar la sesión de práctica?" -> Sí (saves: nn::fs::CommitSaveData)
+900 PLUS 10
+1000 A 6
+# the tutorial's last message, GameShare, the version 1.1.0 news (three screens)
+1100 A 6
+1190 A 6
+1280 A 6
+1370 A 6
+1460 A 6
+1550 A 6
+# main menu: Libre, below Historia
+1640 DOWN 6
+1700 A 6
+# rules (singles), court (Estadio, hierba), J1 Mario and its confirmation
+1800 A 6
+1890 A 6
+1980 A 6
+2070 A 6
+# CPU2: from the "Al azar" button up into the grid to Donkey Kong (random would change the programs each run)
+2100 UP 4
+2112 UP 4
+2124 UP 4
+2136 UP 4
+2160 A 6
+# CPU level (Intermedio), racquets, controls, the court's introduction; the match starts near 3100
+2250 A 6
+2340 A 6
+2430 A 6
+2520 A 6
+2610 A 6
+2700 A 6
+2790 A 6
+2880 A 6
+2970 A 6
+3060 A 6
+3150 A 6
+3240 A 6
+3330 A 6
+3420 A 6
+3510 A 6
+3600 A 6
