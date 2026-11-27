@@ -159,6 +159,22 @@ mkw-recomp's translator marks every image the same way.
 nn::fontll answered every lookup the text made; the only misses were the Nintendo extension font's private-use codes
 (0xE0xx, the button icons), which the stand-in fonts lack.
 
+### Past the tutorial: a free match (27/11/2026)
+
+`tools/run/scripts/match.txt` ends the tutorial with PLUS and goes through the main menu to Libre, Mario against
+Donkey Kong (the CPU picked in the grid: "Al azar" changes the opponent, and so the programs, each run) on the
+stadium's grass court. Three stops on the way, now answered: `nn::fs::CommitSaveData` when the tutorial ends; an
+abort in `nn::os::CreateThread` (the engine gives a thread a static stack in its .bss, and the kernel's MapMemory only
+took heap or alias memory as source, so the SDK's 64 random tries all failed); `nn::nfp::Initialize` (amiibo).
+
+The stadium first drew as white fog and sky only: 701 of 1701 draws a frame had no prepared SPIR-V. With the match's
+programs dumped and translated (845 programs, 843 valid), 1840 of 1841 draws run. The one left is the first draw met
+with tessellation: an indirect draw of patches into the G-buffer, VS, TCS (quad patches of 4 control points, 7
+per-patch attributes, two texture samples), TES, a full geometry program (528 instructions, 11 texture samples, a
+4-vertex triangle strip out) and FS: a quad per tessellated point, most likely the grass's blades. The two programs
+that do not translate are that geometry program and a compute program whose texture handle comes from a uniform
+register (`tex_scr_urc_`).
+
 ### Open questions
 
 1. Where does the engine keep its shaders? `nvnProgramSetShaders` is imported; the `sysCustomShader*` names suggest a
