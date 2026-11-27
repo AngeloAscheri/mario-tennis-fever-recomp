@@ -448,6 +448,7 @@ void vk_pipe_state_defaults(VkPipeState *s) {
     memset(s, 0, sizeof *s);
     s->samples = 1;
     s->prim = NVN_DRAW_PRIMITIVE_TRIANGLES;
+    s->patch = 3;   // NVN's default patch size (mtf-recomp)
     for (int i = 0; i < 8; i++)
         s->blend[i] = (blend_st){(uint64_t)i, NVN_BLEND_FUNC_ONE, NVN_BLEND_FUNC_ZERO, NVN_BLEND_FUNC_ONE,
                                  NVN_BLEND_FUNC_ZERO, NVN_BLEND_EQUATION_ADD, NVN_BLEND_EQUATION_ADD};
@@ -658,6 +659,8 @@ void gkey_fill(const VkPipeState *s, GKey *k) {
     k->vs = s->vs, k->fs = s->fs, k->gs = s->gs;
     k->indep = (uint8_t)P.indep;
     if (mesh_pipe(s)) k->meshp = 1, k->mesh = s->mesh, k->indep = 0;
+    if (s->tcs && s->tes && !k->meshp)   // mtf-recomp: tessellation: a monolithic pipeline with one set
+        k->tessp = 1, k->tcs = s->tcs, k->tes = s->tes, k->patch = s->patch ? s->patch : 3, k->indep = 0;
     k->n_color = (uint8_t)target_count(s);
     for (int i = 0; i < k->n_color; i++) k->color[i] = target_format(s->color_fmt[i], NULL, NULL);
     int d, st;
@@ -726,7 +729,47 @@ uint32_t vs_union_missing(const VkPipeState *s, GfxShaderIo fin[32]) {
 // Its bindings follow the vertex stage's in set 0 (with independent layouts too: both are pre-rasterization), the
 // fragment stage's follow both in a single set. Its module is adapted per pipeline (vk_spirv_patch.c spirv_gs_adapt):
 // it passes on exactly the Locations the vertex module declares, so the fragment stage sees what it saw without it.
-uint32_t gs_offset(const VkPipeState *s) { return binding_span(s->vs) - 1; }
+uint32_t gs_offset(const VkPipeState *s) {
+    uint32_t off[5];
+    stage_offsets(s, off);
+    return off[3];
+}
+
+// Binding offsets of the stages in one set (mtf-recomp), in pipeline order: vertex 0, tessellation control,
+// tessellation evaluation, geometry, fragment. Each module numbers its own bindings from 1 (0 is the support buffer
+// they share), so a stage's go after the stages before it.
+void stage_offsets(const VkPipeState *s, uint32_t off[5]) {
+    const GfxShader *st[4] = {s->vs, s->tcs && s->tes ? s->tcs : NULL, s->tcs && s->tes ? s->tes : NULL, s->gs};
+    uint32_t at = 0;
+    off[0] = 0;
+    for (int i = 0; i < 4; i++) {
+        if (st[i]) at += binding_span(st[i]) - 1;
+        off[i + 1] = at;
+    }
+}
+
+// A stage after the vertex stage that reads arrayed inputs (mtf-recomp: TCS, TES, or a geometry stage after them),
+// adapted to the stage before it (vk_spirv_patch.c spirv_gs_adapt, inputs only): its input gl_PerVertex gets that
+// stage's ClipDistance and CullDistance (prev_clip 0: none), inputs at a Location outside keep go, and a geometry
+// stage takes topo_class primitives. Bindings moved by off. NULL when it cannot (logged).
+static uint32_t *tess_stage_code(const GfxShader *sh, const char *what, uint32_t keep, uint32_t prev_clip, uint32_t prev_cull,
+                                 int topo_class, uint32_t off, uint64_t *n) {
+    uint64_t w = 0, n1 = 0;
+    const uint32_t *code = gfx_shader_spirv(sh, &w);
+    uint32_t *a = code ? spirv_gs_adapt(code, w, topo_class, keep, 0, prev_clip, prev_cull, 1, &n1) : NULL;
+    if (!a) {
+        LOG_ONCE("vk_pipeline: a %s stage cannot be adapted (inputs %#x, clip %u, cull %u, topology class %d)", what, keep,
+                 prev_clip, prev_cull, topo_class);
+        return NULL;
+    }
+    if (off) {
+        uint32_t *r = spirv_rebind(a, n1, off);
+        free(a);
+        if (!(a = r)) return NULL;
+    }
+    *n = n1;
+    return a;
+}
 
 uint32_t *gs_code(const GfxShader *gs, const GfxShader *vs, uint32_t vs_have, int topo_class, uint32_t off, uint64_t *n) {
     // the vertex module's gl_PerVertex as make_module will create it (spirv_fixup may drop its CullDistance)
@@ -736,7 +779,7 @@ uint32_t *gs_code(const GfxShader *gs, const GfxShader *vs, uint32_t vs_have, in
     int vblock = vcode && spirv_vs_block(vfixed ? vfixed : vcode, vfixed ? fw : vw, &clip_len, &cull_len);
     free(vfixed);
     const uint32_t *code = gfx_shader_spirv(gs, &w);
-    uint32_t *a = code && vblock ? spirv_gs_adapt(code, w, topo_class, vs_have, gfx_shader_clip(vs), clip_len, cull_len, &n1)
+    uint32_t *a = code && vblock ? spirv_gs_adapt(code, w, topo_class, vs_have, gfx_shader_clip(vs), clip_len, cull_len, 0, &n1)
                                  : NULL;
     if (!a) {
         LOG_ONCE("vk_pipeline: a geometry stage cannot be adapted (topology class %d, vertex outputs %#x, vertex block %d)",
@@ -985,7 +1028,7 @@ void pipe_test_stall(const GfxShader *vs, const GfxShader *fs) {
 VkPipeline create_graphics(const VkPipeState *s, const GKey *k, const Layout *l, uint32_t fs_off) {
     if (k->meshp) return create_mesh(s, k, l);
     pipe_test_stall(s->vs, s->fs);
-    VkShaderModule vm = VK_NULL_HANDLE, fm = VK_NULL_HANDLE, gm = VK_NULL_HANDLE;
+    VkShaderModule vm = VK_NULL_HANDLE, fm = VK_NULL_HANDLE, gm = VK_NULL_HANDLE, tcm = VK_NULL_HANDLE, tem = VK_NULL_HANDLE;
     uint64_t vw, fw;
     const uint32_t *vcode = gfx_shader_spirv(s->vs, &vw);
     uint32_t *vpatched = NULL, *fpatched = NULL;
@@ -1003,7 +1046,7 @@ VkPipeline create_graphics(const VkPipeState *s, const GKey *k, const Layout *l,
     if (s->fs) {
         GfxShaderIo fin[32], vout[32];
         uint32_t need = gfx_shader_inputs(s->fs, fin), have = gfx_shader_outputs(s->vs, vout), missing = 0;
-        for (int i = 0; i < 32; i++) {
+        for (int i = 0; i < 32 && !k->tessp; i++) {   // with tessellation the fragment stage reads the last stage's
             if (!(need >> i & 1) || fin[i].packed) continue;
             if (!(have >> i & 1)) missing |= 1u << i;
             else if (vout[i].type != fin[i].type)
@@ -1041,7 +1084,43 @@ VkPipeline create_graphics(const VkPipeState *s, const GKey *k, const Layout *l,
         if (fcode) fm = make_module(fcode, fw);
     }
     vm = make_module(vcode, vw);
-    if (s->gs) {
+    if (k->tessp) {
+        // mtf-recomp: vertex, tessellation control, tessellation evaluation, a geometry stage that emits its own
+        // vertices (optional), fragment, in one set (stage_offsets). Each stage after the vertex one is fitted to the
+        // one before (tess_stage_code): the TCS to the vertex module's gl_PerVertex and Locations, the TES to the TCS's
+        // outputs (per-vertex and per-patch), the geometry stage to the TES's outputs and primitives. The TCS and TES
+        // modules' own output blocks carry no ClipDistance (the translator's head.py vtg_head).
+        uint32_t off[5], clip_len = 0, cull_len = 0;
+        stage_offsets(s, off);
+        uint64_t vw2 = 0, fw2 = 0, tw = 0, ew = 0, gw = 0;
+        const uint32_t *vc = gfx_shader_spirv(s->vs, &vw2);
+        uint32_t *vfixed = vc ? spirv_fixup(vc, vw2, &fw2) : NULL;
+        int vblock = vc && spirv_vs_block(vfixed ? vfixed : vc, vfixed ? fw2 : vw2, &clip_len, &cull_len);
+        free(vfixed);
+        if (!vblock) LOG_ONCE("vk_pipeline: tessellation: the vertex module has no gl_PerVertex block to fit the TCS to");
+        uint32_t *tc = vblock ? tess_stage_code(s->tcs, "tessellation control", vs_have, clip_len, cull_len, 2, off[1], &tw) : NULL;
+        uint32_t *te = tess_stage_code(s->tes, "tessellation evaluation", gfx_shader_outputs(s->tcs, NULL), 0, 0, 2, off[2], &ew);
+        uint32_t *gc = s->gs ? tess_stage_code(s->gs, "geometry", gfx_shader_outputs(s->tes, NULL), 0, 0,
+                                               gfx_shader_tess_out(s->tes), off[3], &gw)
+                             : NULL;
+        if (s->fs && te && (!s->gs || gc)) {   // the fragment stage's inputs from the last stage, as the vertex stage's above
+            GfxShaderIo fin[32];
+            uint32_t need = gfx_shader_inputs(s->fs, fin), have = gfx_shader_outputs(s->gs ? s->gs : s->tes, NULL), missing = 0;
+            for (int i = 0; i < 32; i++)
+                if ((need >> i & 1) && !fin[i].packed && !(have >> i & 1)) missing |= 1u << i;
+            if (missing) {
+                uint64_t n2 = 0;
+                uint32_t **last = s->gs ? &gc : &te;
+                uint32_t *r = spirv_add_outputs(*last, s->gs ? gw : ew, missing, fin, &n2);
+                if (!r) LOG_ONCE("vk_pipeline: cannot add missing outputs to the last tessellation stage (mask %#x)", missing);
+                else free(*last), *last = r, *(s->gs ? &gw : &ew) = n2;
+            }
+        }
+        if (tc) tcm = make_module(tc, tw);
+        if (te) tem = make_module(te, ew);
+        if (gc) gm = make_module(gc, gw);
+        free(tc), free(te), free(gc);
+    } else if (s->gs) {
         uint64_t gw = 0;
         uint32_t *gcode = gs_code(s->gs, s->vs, vs_have, k->topo_class, gs_offset(s), &gw);
         if (gcode) gm = make_module(gcode, gw);
@@ -1049,19 +1128,27 @@ VkPipeline create_graphics(const VkPipeState *s, const GKey *k, const Layout *l,
     }
     free(vpatched), free(fpatched);
     VkPipeline pipe = VK_NULL_HANDLE;
-    if (!vm || (s->fs && !fm) || (s->gs && !gm)) goto out;
+    if (!vm || (s->fs && !fm) || (s->gs && !gm) || (k->tessp && (!tcm || !tem))) goto out;
 
-    VkPipelineShaderStageCreateInfo stages[3];
-    VkPipelineShaderStageRequiredSubgroupSizeCreateInfo rqv, rqf;
+    VkPipelineShaderStageCreateInfo stages[5];
+    VkPipelineShaderStageRequiredSubgroupSizeCreateInfo rqv, rqf, rqt[3];
     uint32_t nst = 0;
     stages[nst++] = (VkPipelineShaderStageCreateInfo){.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
                                                       .stage = VK_SHADER_STAGE_VERTEX_BIT, .module = vm, .pName = "main"};
     uint64_t sw;
     const uint32_t *scode = gfx_shader_spirv(s->vs, &sw);   // vcode may be a patched copy that is freed by now
     pin_subgroup32(&stages[0], &rqv, scode, sw);
-    if (gm)
-        stages[nst++] = (VkPipelineShaderStageCreateInfo){.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-                                                          .stage = VK_SHADER_STAGE_GEOMETRY_BIT, .module = gm, .pName = "main"};
+    const struct { VkShaderModule m; VkShaderStageFlagBits bit; const GfxShader *sh; } mid[3] = {
+        {tcm, VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT, s->tcs},
+        {tem, VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT, s->tes},
+        {gm, VK_SHADER_STAGE_GEOMETRY_BIT, s->gs}};
+    for (int i = 0; i < 3; i++) {   // the stages between, in pipeline order
+        if (!mid[i].m) continue;
+        stages[nst] = (VkPipelineShaderStageCreateInfo){.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+                                                        .stage = mid[i].bit, .module = mid[i].m, .pName = "main"};
+        if (i < 2) pin_subgroup32(&stages[nst], &rqt[i], gfx_shader_spirv(mid[i].sh, &sw), sw);   // the TCS and TES as translated
+        nst++;
+    }
     if (s->fs) {
         stages[nst] = (VkPipelineShaderStageCreateInfo){.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
                                                         .stage = VK_SHADER_STAGE_FRAGMENT_BIT, .module = fm, .pName = "main"};
@@ -1084,6 +1171,10 @@ VkPipeline create_graphics(const VkPipeState *s, const GKey *k, const Layout *l,
                                                       VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, VK_PRIMITIVE_TOPOLOGY_PATCH_LIST};
     VkPipelineInputAssemblyStateCreateInfo ia = {.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
                                                  .topology = class_base[k->topo_class]};
+    // mtf-recomp: the control points of a patch (NVN SetPatchSize). The hardware's TRIANGLES_CW is Vulkan's cw with the
+    // default upper-left domain origin (head.py tes_layout), so the origin stays the default.
+    VkPipelineTessellationStateCreateInfo ts = {.sType = VK_STRUCTURE_TYPE_PIPELINE_TESSELLATION_STATE_CREATE_INFO,
+                                                .patchControlPoints = k->patch ? k->patch : 3};
     VkPipelineViewportDepthClipControlCreateInfoEXT clip = {.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_DEPTH_CLIP_CONTROL_CREATE_INFO_EXT,
                                                             .negativeOneToOne = k->minus_w};
     VkPipelineViewportStateCreateInfo vp = {.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO, .pNext = &clip};
@@ -1121,7 +1212,8 @@ VkPipeline create_graphics(const VkPipeState *s, const GKey *k, const Layout *l,
                                         .depthAttachmentFormat = (VkFormat)k->depth, .stencilAttachmentFormat = (VkFormat)k->stencil};
     VkGraphicsPipelineCreateInfo pi = {.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO, .pNext = &ri,
                                        .stageCount = nst, .pStages = stages, .pVertexInputState = &vi,
-                                       .pInputAssemblyState = &ia, .pViewportState = &vp, .pRasterizationState = &rs,
+                                       .pInputAssemblyState = &ia, .pTessellationState = k->tessp ? &ts : NULL,
+                                       .pViewportState = &vp, .pRasterizationState = &rs,
                                        .pMultisampleState = &ms, .pDepthStencilState = &ds, .pColorBlendState = &cb,
                                        .pDynamicState = &dy, .layout = l->layout};
     if (k->fbl & 1) pi.flags |= VK_PIPELINE_CREATE_COLOR_ATTACHMENT_FEEDBACK_LOOP_BIT_EXT;
@@ -1142,6 +1234,8 @@ out:
     if (vm) vkDestroyShaderModule(P.device, vm, NULL);
     if (fm) vkDestroyShaderModule(P.device, fm, NULL);
     if (gm) vkDestroyShaderModule(P.device, gm, NULL);
+    if (tcm) vkDestroyShaderModule(P.device, tcm, NULL);
+    if (tem) vkDestroyShaderModule(P.device, tem, NULL);
     return pipe;
 }
 

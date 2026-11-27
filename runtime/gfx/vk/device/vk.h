@@ -66,6 +66,7 @@ typedef struct VkCtx {
         has_8bit_storage,                   // storageBuffer8BitAccess: the mirror's merged write-back (vk_mem_mmerge.c)
         has_geom_stage,                     // geometryShader with shaderTessellationAndGeometryPointSize and multiViewport:
                                             // passthrough geometry programs (mtf-recomp, vk_pipe_keys.c pipe_miss)
+        has_tess,                           // tessellationShader: TCS and TES (mtf-recomp, vk_pipe_keys.c pipe_miss)
         has_ssbo_nonuniform,                // its arrays: non-uniform storage buffer indexing and partially bound sets
         has_unused_attachments,             // VK_EXT_dynamic_rendering_unused_attachments
         has_buffer_marker,                  // VK_AMD_buffer_marker: the GPU breadcrumbs (vk_crumbs.c)
@@ -724,8 +725,10 @@ typedef struct VkPipeState {
     vs_st vstream[16];                     // OP_BIND_VSTREAM
     const GfxShader *mesh;                 // a task/mesh draw whose vs is the task program: its mesh program; NULL
                                            // otherwise (a mesh program alone sits in vs)
-    const GfxShader *gs;                   // the program's passthrough geometry stage, between vs and fs; NULL none
+    const GfxShader *gs;                   // the program's geometry stage, between vs (or tes) and fs; NULL none
                                            // (mtf-recomp: vk_spirv_patch.c spirv_gs_adapt)
+    const GfxShader *tcs, *tes;            // the program's tessellation stages (mtf-recomp), both or neither; NULL none
+    uint8_t patch;                         // OP_PATCH_SIZE: control points of a patch (NVN's default 3); only with tcs
 } VkPipeState;
 _Static_assert(__builtin_offsetof(VkPipeState, blend) == 64, "pad_ref must stay in the padding (KeyRec size)");
 void vk_pipe_state_defaults(VkPipeState *s);   // NVN defaults of every state object (shaders and formats left 0)

@@ -394,9 +394,9 @@ int spirv_vs_block(const uint32_t *w, uint64_t n, uint32_t *clip_len, uint32_t *
 }
 
 uint32_t *spirv_gs_adapt(const uint32_t *w, uint64_t n, int topo_class, uint32_t keep, int clip, uint32_t vs_clip_len,
-                         uint32_t vs_cull_len, uint64_t *out_n) {
-    if (n < 5 || topo_class < 0 || topo_class > 2 || clip < 0 || clip > 8 || vs_clip_len < 1 || vs_clip_len > 8 ||
-        vs_cull_len > 8)
+                         uint32_t vs_cull_len, int inputs_only, uint64_t *out_n) {
+    if (n < 5 || topo_class < 0 || topo_class > 2 || clip < 0 || clip > 8 || vs_clip_len > 8 || vs_cull_len > 8 ||
+        (!inputs_only && vs_clip_len < 1) || (!vs_clip_len && vs_cull_len))
         return NULL;
     uint32_t bound = w[3], nv = (uint32_t)topo_class + 1;
     uint32_t blk = 0, blk_clip = ~0u, f32 = 0, u32 = 0;   // the input gl_PerVertex, its ClipDistance member, float, uint
@@ -420,12 +420,12 @@ uint32_t *spirv_gs_adapt(const uint32_t *w, uint64_t n, int topo_class, uint32_t
             ptr_sc[a[0]] = a[1], ptr_to[a[0]] = a[2];
         } else if (op == SPV_OP_VARIABLE && len >= 4 && a[1] < bound && a[0] < bound) {
             uint32_t sc = a[2], l = loc[a[1]];
-            if ((sc == GS_SC_INPUT || sc == SPV_SC_OUTPUT) && l > 0 && !(keep >> (l - 1) & 1)) drop[a[1]] = 1;
+            if ((sc == GS_SC_INPUT || (sc == SPV_SC_OUTPUT && !inputs_only)) && l > 0 && !(keep >> (l - 1) & 1)) drop[a[1]] = 1;
             else if (sc == GS_SC_INPUT && ptr_to[a[0]] < bound) in_arr[ptr_to[a[0]]] = 1;   // a kept per-vertex input
         }
         i += len;
     }
-    if (!nv_id || !clip_id) goto fail;   // not the translator's passthrough module
+    if (!inputs_only && (!nv_id || !clip_id)) goto fail;   // not the translator's passthrough module
     // the input block: the element of a per-vertex Input array that carries BuiltIn members; float and uint from its
     // ClipDistance array (float[8]: its element and its length's type)
     for (uint64_t i = 5; i < n && !blk; i += w[i] >> 16)
@@ -485,6 +485,9 @@ uint32_t *spirv_gs_adapt(const uint32_t *w, uint64_t n, int topo_class, uint32_t
         }
         if ((op == GS_OP_NAME || op == GS_OP_MEMBER_NAME || op == SPV_OP_DECORATE) && len >= 2 && a[0] < bound && drop[a[0]])
             keep_insn = 0;
+        else if (!vs_clip_len && (op == GS_OP_MEMBER_NAME || op == GS_OP_MEMBER_DECORATE) && len >= 3 && a[0] == blk &&
+                 a[1] == blk_clip)
+            keep_insn = 0;   // a stage before it with no ClipDistance (inputs_only): the member goes
         else if (op == GS_OP_MEMBER_DECORATE && len >= 5 && a[0] == blk && a[1] == blk_clip && a[2] == SPV_DEC_BUILTIN) {
             memcpy(o + at, w + i, len * 4), at += len;   // the vertex block's CullDistance follows its ClipDistance
             if (vs_cull_len) o[at++] = 5u << 16 | GS_OP_MEMBER_DECORATE, o[at++] = blk, o[at++] = blk_clip + 1,
@@ -493,6 +496,12 @@ uint32_t *spirv_gs_adapt(const uint32_t *w, uint64_t n, int topo_class, uint32_t
             continue;
         } else if (op == GS_OP_TYPE_STRUCT && len >= 2 && a[0] == blk) {
             if (blk_clip + 3 != len) goto fail;   // ClipDistance must be its last member, as the translator writes it
+            if (!vs_clip_len) {   // the block without it (inputs_only: the stage before writes no clip distances)
+                o[at++] = (len - 1) << 16 | op;
+                for (uint32_t k = 0; k + 2 < len; k++) o[at++] = a[k];
+                i += len;
+                continue;
+            }
             uint32_t lc = bound++, ac = bound++;
             o[at++] = 4u << 16 | SPV_OP_CONSTANT, o[at++] = u32, o[at++] = lc, o[at++] = vs_clip_len;
             o[at++] = 4u << 16 | GS_OP_TYPE_ARRAY, o[at++] = ac, o[at++] = f32, o[at++] = lc;
@@ -515,8 +524,8 @@ uint32_t *spirv_gs_adapt(const uint32_t *w, uint64_t n, int topo_class, uint32_t
             static const uint32_t out_mode[3] = {GS_EM_OUTPUT_POINTS, GS_EM_OUTPUT_LINE_STRIP, GS_EM_OUTPUT_TRIANGLE_STRIP};
             memcpy(o + at, w + i, len * 4);
             if (m == GS_EM_TRIANGLES) o[at + 2] = in_mode[topo_class];
-            else if (m == GS_EM_OUTPUT_TRIANGLE_STRIP) o[at + 2] = out_mode[topo_class];
-            else if (m == GS_EM_OUTPUT_VERTICES && len >= 4) o[at + 3] = nv;
+            else if (m == GS_EM_OUTPUT_TRIANGLE_STRIP && !inputs_only) o[at + 2] = out_mode[topo_class];
+            else if (m == GS_EM_OUTPUT_VERTICES && len >= 4 && !inputs_only) o[at + 3] = nv;   // a full GS keeps its own
             at += len, i += len;
             continue;
         } else if (op == GS_OP_TYPE_ARRAY && len >= 4 && topo_class != 2 && a[0] < bound && in_arr[a[0]]) {
@@ -532,7 +541,7 @@ uint32_t *spirv_gs_adapt(const uint32_t *w, uint64_t n, int topo_class, uint32_t
             o[at++] = w[i], o[at++] = a[0], o[at++] = a[1], o[at++] = new_len;
             i += len;
             continue;
-        } else if (op == GS_OP_SPEC_CONSTANT && len >= 4 && (a[1] == nv_id || a[1] == clip_id)) {
+        } else if (op == GS_OP_SPEC_CONSTANT && len >= 4 && ((nv_id && a[1] == nv_id) || (clip_id && a[1] == clip_id))) {
             memcpy(o + at, w + i, len * 4);
             o[at + 3] = a[1] == nv_id ? nv : (uint32_t)clip;
             at += len, i += len;

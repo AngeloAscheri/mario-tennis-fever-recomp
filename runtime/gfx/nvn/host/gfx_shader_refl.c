@@ -225,7 +225,8 @@ void gfx_shader_reflect(GfxShader *s) {
     char stage[8];
     json_str(js, js + strlen(js), "stage", stage, sizeof stage);
     s->stage = !strcmp(stage, "cs") ? GFX_STAGE_CS : !strcmp(stage, "ps") ? GFX_STAGE_FS
-             : !strcmp(stage, "gs") ? GFX_STAGE_GS : GFX_STAGE_VS;   // gs: a passthrough geometry program (mtf-recomp)
+             : !strcmp(stage, "gs") ? GFX_STAGE_GS : !strcmp(stage, "tcs") ? GFX_STAGE_TCS
+             : !strcmp(stage, "tes") ? GFX_STAGE_TES : GFX_STAGE_VS;   // gs, tcs, tes: mtf-recomp
     s->mesh_kind = !strcmp(stage, "task") ? GFX_MESH_TASK : !strcmp(stage, "mesh") ? GFX_MESH_MESH : GFX_MESH_NONE;
     char t[32];
     unsigned c[5];
@@ -245,6 +246,9 @@ void gfx_shader_reflect(GfxShader *s) {
     s->raw_outputs = (uint32_t)json_int(js, js + strlen(js), "raw_outputs", 0);
     long clip = json_int(js, js + strlen(js), "clip", 0);   // the clip distances a vertex shader writes (head.py)
     s->clip = (uint8_t)(clip > 0 && clip <= 8 ? clip : 0);
+    s->gs_emits = s->stage == GFX_STAGE_GS && json_int(js, js + strlen(js), "emits", 0) == 1;   // a full geometry stage
+    long tess_out = json_int(js, js + strlen(js), "tess_out", 2);   // a TES's primitives: 0 points, 1 lines, 2 triangles
+    s->tess_out = (uint8_t)(tess_out >= 0 && tess_out <= 2 ? tess_out : 2);
     reflect_spirv(s);
 }
 

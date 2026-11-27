@@ -81,7 +81,8 @@ _Thread_local uint64_t bind_gen = 1;
 static int nvn_stage_of(int gfx_stage) {
     if (gfx_stage & VK_PIPE_STAGE_NVN) return gfx_stage & 7;   // a task or mesh binding (vk_pipeline.c add_stage)
     return gfx_stage == GFX_STAGE_VS ? NVN_STAGE_VS : gfx_stage == GFX_STAGE_FS ? NVN_STAGE_FS
-         : gfx_stage == GFX_STAGE_GS ? NVN_STAGE_GS : NVN_STAGE_CS;
+         : gfx_stage == GFX_STAGE_GS ? NVN_STAGE_GS : gfx_stage == GFX_STAGE_TCS ? NVN_STAGE_TCS
+         : gfx_stage == GFX_STAGE_TES ? NVN_STAGE_TES : NVN_STAGE_CS;
 }
 
 static VkDescriptorBufferInfo zero_info(uint64_t max) {

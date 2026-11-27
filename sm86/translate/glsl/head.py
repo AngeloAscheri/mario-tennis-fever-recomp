@@ -109,6 +109,11 @@ def declarations(b, stage: str, shape: tuple[int, int, int, int] | None) -> list
     refl: dict = {"stage": "task" if b.task else "mesh" if b.mesh else stage, "cbufs": [], "sbufs": [], "textures": [], "images": []}
     if stage == "vs" and getattr(b, "clip", 0):
         refl["clip"] = b.clip  # the clip distances it writes: a passthrough geometry stage after it passes them on
+    if stage == "gs" and getattr(b, "gs_full", False):
+        refl["emits"] = 1  # a geometry program that emits its own vertices (mtf-recomp), not a passthrough one
+    if stage == "tes":  # what a geometry stage after it takes (mtf-recomp): 0 points, 1 lines, 2 triangles
+        mode = getattr(b, "tess_mode", 0)
+        refl["tess_out"] = 0 if (mode >> 8 & 3) == 0 else 1 if (mode & 3) == 0 else 2
     nb = 1
     for n in sorted(b.cbufs):
         head.append(f"layout(std140, binding = {nb}) uniform CB{n} {{ uvec4 d[4096]; }} cb{n};")

@@ -378,14 +378,17 @@ static int ph_textures(VkExec *ex, const GfxShader *s, int st) {
 
 // The draw against the open pass's missing barrier; memo: the same shaders and texture bindings as the last draw checked
 // in this pass.
-static void ph_draw(VkExec *ex, const GfxShader *vs, const GfxShader *fs, const GfxShader *msh, const GfxShader *gs) {
-    static _Thread_local struct { const GfxShader *vs, *fs, *msh, *gs; uint32_t serial, pass, gen; } m;
+static void ph_draw(VkExec *ex, const GfxShader *vs, const GfxShader *fs, const GfxShader *msh, const GfxShader *gs,
+                    const GfxShader *tcs, const GfxShader *tes) {
+    static _Thread_local struct { const GfxShader *vs, *fs, *msh, *gs, *tcs, *tes; uint32_t serial, pass, gen; } m;
     if (!ex->in_pass) return;
-    if (m.vs == vs && m.fs == fs && m.msh == msh && m.gs == gs && m.serial == ex->tex_serial && m.pass == ex->pass_serial &&
-        m.gen == ph_gen)
+    if (m.vs == vs && m.fs == fs && m.msh == msh && m.gs == gs && m.tcs == tcs && m.tes == tes &&
+        m.serial == ex->tex_serial && m.pass == ex->pass_serial && m.gen == ph_gen)
         return;
     for (int round = 0; round < 2; round++) {
         int hit = vs ? ph_textures(ex, vs, NVN_STAGE_VS) : 0;
+        if (tcs) hit |= ph_textures(ex, tcs, NVN_STAGE_TCS);   // mtf-recomp
+        if (tes) hit |= ph_textures(ex, tes, NVN_STAGE_TES);
         if (gs) hit |= ph_textures(ex, gs, NVN_STAGE_GS);
         if (fs) hit |= ph_textures(ex, fs, NVN_STAGE_FS);
         if (msh) hit |= ph_stores();   // its own stages' textures are not followed: a barrier before and after
@@ -394,7 +397,8 @@ static void ph_draw(VkExec *ex, const GfxShader *vs, const GfxShader *fs, const 
         vk_exec_pass_begin(ex);   // behind the barrier; the textures are noted again after it
     }
     ph_drew();
-    m.vs = vs, m.fs = fs, m.msh = msh, m.gs = gs, m.serial = ex->tex_serial, m.pass = ex->pass_serial, m.gen = ph_gen;
+    m.vs = vs, m.fs = fs, m.msh = msh, m.gs = gs, m.tcs = tcs, m.tes = tes, m.serial = ex->tex_serial, m.pass = ex->pass_serial,
+    m.gen = ph_gen;
 }
 
 // Before the pipeline lookup of a draw with fragment shader fs: learns and restarts as the mode says. Returns the
@@ -487,7 +491,7 @@ typedef struct {
     uint64_t serial;
     VkPipeState pipe;
 } MemoKey;
-typedef struct { int on, valid, has_fs, has_gs; MemoKey k; const GfxShader *vs, *fs, *gs; } DrawSM;
+typedef struct { int on, valid, has_fs, has_gs, has_tcs, has_tes; MemoKey k; const GfxShader *vs, *fs, *gs, *tcs, *tes; } DrawSM;
 static _Thread_local DrawSM *dtl_sm;
 #define SM (*dtl_sm)
 
@@ -610,27 +614,33 @@ int prepare_draw_ex(VkExec *ex, int prim, int32_t count, int restart, int mesh) 
     if (!sc.extent.width || !sc.extent.height) return vk_exec_frame.skip[VK_SKIP_SCISSOR]++, 0;
     if (!ex->prog) return vk_exec_frame.skip[VK_SKIP_PROGRAM]++, warn_once(W_PROGRAM, "a draw without a bound program is skipped"), 0;
     PD_MARK(PD_HEAD);
-    int has_vs, has_fs, has_gs = 0, memo = mesh ? 0 : shader_memo_on();
-    const GfxShader *vs, *fs, *msh = NULL, *gs = NULL;
+    int has_vs, has_fs, has_gs = 0, has_tcs = 0, has_tes = 0, memo = mesh ? 0 : shader_memo_on();
+    const GfxShader *vs, *fs, *msh = NULL, *gs = NULL, *tcs = NULL, *tes = NULL;
     if (mesh) {   // no memo: the memo key holds the vertex, geometry and fragment stages only
         vs = mesh_stages(ex, &msh, &has_vs);
         fs = shader_for(ex, NVN_STAGE_FS, &has_fs);
     } else if (memo && SM.valid && memo_match(ex, &SM.k)) {
         vs = SM.vs, fs = SM.fs, gs = SM.gs, has_vs = 1, has_fs = SM.has_fs, has_gs = SM.has_gs;
+        tcs = SM.tcs, tes = SM.tes, has_tcs = SM.has_tcs, has_tes = SM.has_tes;
         if (memo == 2) {
-            int hv, hf, hg;
+            int hv, hf, hg, hc, he;
             const GfxShader *v2 = shader_for(ex, NVN_STAGE_VS, &hv), *f2 = shader_for(ex, NVN_STAGE_FS, &hf);
             const GfxShader *g2 = shader_for(ex, NVN_STAGE_GS, &hg);
-            if (v2 != vs || f2 != fs || hf != has_fs || g2 != gs || hg != has_gs)
+            const GfxShader *c2 = shader_for(ex, NVN_STAGE_TCS, &hc), *e2 = shader_for(ex, NVN_STAGE_TES, &he);
+            if (v2 != vs || f2 != fs || hf != has_fs || g2 != gs || hg != has_gs || c2 != tcs || hc != has_tcs || e2 != tes ||
+                he != has_tes)
                 rt_fatal("vk_exec: shader memo of program %llu differs from the lookup", (unsigned long long)ex->prog->serial);
         }
     } else {
         SM.valid = 0;
         vs = shader_for(ex, NVN_STAGE_VS, &has_vs);
         fs = shader_for(ex, NVN_STAGE_FS, &has_fs);
-        gs = shader_for(ex, NVN_STAGE_GS, &has_gs);   // a passthrough geometry stage (mtf-recomp)
-        if (memo && vs && (!has_fs || fs) && (!has_gs || gs))
+        gs = shader_for(ex, NVN_STAGE_GS, &has_gs);   // a geometry stage (mtf-recomp)
+        tcs = shader_for(ex, NVN_STAGE_TCS, &has_tcs), tes = shader_for(ex, NVN_STAGE_TES, &has_tes);   // tessellation
+        if (memo && vs && (!has_fs || fs) && (!has_gs || gs) && (!has_tcs || tcs) && (!has_tes || tes)) {
             memo_key(ex, &SM.k), SM.vs = vs, SM.fs = fs, SM.gs = gs, SM.has_fs = has_fs, SM.has_gs = has_gs, SM.valid = 1;
+            SM.tcs = tcs, SM.tes = tes, SM.has_tcs = has_tcs, SM.has_tes = has_tes;
+        }
     }
     if (!has_vs) return vk_exec_frame.skip[VK_SKIP_NO_VS]++, warn_once(W_NO_VS, "a draw with a program that has no vertex stage is skipped"), 0;
     // A geometry stage takes points, lines or triangles; adjacency would need its own input modes (not translated).
@@ -642,16 +652,21 @@ int prepare_draw_ex(VkExec *ex, int prim, int32_t count, int restart, int mesh) 
     // draws (volumes and LUTs generated once, later only sampled) would leave their target empty for the session. A
     // draw into per-frame targets is skipped until it is ready and comes back next frame.
     int oneshot = -1, skip = pipe_skip_mode();   // -1: not looked up
-    if (!vs || (has_fs && !fs) || (has_gs && !gs)) return vk_exec_frame.skip[VK_SKIP_SHADER_MISSING]++, 0;
+    if (!vs || (has_fs && !fs) || (has_gs && !gs) || (has_tcs && !tcs) || (has_tes && !tes))
+        return vk_exec_frame.skip[VK_SKIP_SHADER_MISSING]++, 0;
+    if (has_tcs != has_tes)   // mtf-recomp: a TES alone (NVN's default tessellation levels) is not drawn
+        return vk_exec_frame.skip[VK_SKIP_SHADER_MISSING]++,
+               warn_once(W_GEOMETRY, "a draw with one tessellation stage only is skipped"), 0;
     if (!vk_tmp_draw(ex, vs, has_fs ? fs : NULL)) return 0;   // the scene's camera and jitter; DLAA in SMAA's place
     if (SP.n && skip_listed(vs, has_fs ? fs : NULL)) return 0;
     PD_MARK(PD_SHADER);
-    if (ph_following()) ph_draw(ex, vs, has_fs ? fs : NULL, msh, gs);
+    if (ph_following()) ph_draw(ex, vs, has_fs ? fs : NULL, msh, gs, tcs, tes);
     uint32_t fbl = feedback_prepare(ex, fs);
     if (ru_cap) ru_note_fbl(fbl);
     PD_MARK(PD_FEEDBACK);
     VkPipeState s = ex->pipe;
-    s.vs = vs, s.fs = fs, s.mesh = msh, s.gs = gs;
+    s.vs = vs, s.fs = fs, s.mesh = msh, s.gs = gs, s.tcs = tcs, s.tes = tes;
+    if (!tcs) s.patch = 0;   // only a tessellated pipeline depends on it
     if (mesh == 2) {   // task/mesh as compute: the draw of the vertices its passes wrote (op_draw_mesh_cs)
         if (!(s.vs = gfx_shader_mesh_cs_vs())) return 0;
         s.mesh = NULL;

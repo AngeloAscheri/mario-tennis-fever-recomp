@@ -459,8 +459,8 @@ NVN_API(nvnCommandBufferSetBlendColor) { memcpy(REC(cmd_of(c), OP_BLEND_COLOR, p
 NVN_API(nvnCommandBufferSetAlphaRef) { REC(cmd_of(c), OP_ALPHA_REF, p_alpha_ref)->ref = arg_s(c, 0); }
 
 // Commands without an effect on this replay (hle_nvn.c g_nops): WaitSync and WaitEvent order work against other queues
-// or the CPU, and every submit replays in order on one queue; shader scratch memory and the tessellation patch size
-// have no host counterpart the replay needs. WaitEvent is recorded for the census of the waits the submit order breaks
+// or the CPU, and every submit replays in order on one queue; shader scratch memory has no host counterpart the replay
+// needs. The tessellation patch size is recorded (mtf-recomp: OP_PATCH_SIZE, a pipeline's patchControlPoints). WaitEvent is recorded for the census of the waits the submit order breaks
 // (nvn_api_cmd.c wait_census); the replay skips it.
 // void nvnCommandBufferWaitSync(NVNcommandBuffer *cmd, const NVNsync *sync), WaitEvent(cmd, const NVNevent *event,
 // NVNeventWaitMode mode, uint32_t value), SetShaderScratchMemory(cmd, const NVNmemoryPool *pool, ptrdiff_t offset,
@@ -471,5 +471,5 @@ NVN_API(nvnCommandBufferWaitEvent) {
     *REC(cmd_of(c), OP_WAIT_EVENT, p_wait_event) = (p_wait_event){e->val, (uint32_t)arg_x(c, 2), (uint32_t)arg_x(c, 3)};
 }
 NVN_API(nvnCommandBufferSetShaderScratchMemory) { (void)c; }
-NVN_API(nvnCommandBufferSetPatchSize) { (void)c; }
+NVN_API(nvnCommandBufferSetPatchSize) { REC(cmd_of(c), OP_PATCH_SIZE, p_flag)->value = (int32_t)arg_x(c, 1); }
 

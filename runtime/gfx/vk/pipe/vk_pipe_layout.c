@@ -37,7 +37,8 @@ static VkDescriptorType descriptor_type(int kind, const GfxShaderRes *r) {
 
 static VkShaderStageFlags stage_bit(int stage) {
     return stage == GFX_STAGE_VS ? VK_SHADER_STAGE_VERTEX_BIT : stage == GFX_STAGE_FS ? VK_SHADER_STAGE_FRAGMENT_BIT
-         : stage == GFX_STAGE_GS ? VK_SHADER_STAGE_GEOMETRY_BIT : VK_SHADER_STAGE_COMPUTE_BIT;
+         : stage == GFX_STAGE_GS ? VK_SHADER_STAGE_GEOMETRY_BIT : stage == GFX_STAGE_TCS ? VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT
+         : stage == GFX_STAGE_TES ? VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT : VK_SHADER_STAGE_COMPUTE_BIT;
 }
 
 // One past the highest binding a shader uses (1 with no resources: binding 0 is the support buffer).
@@ -105,7 +106,11 @@ int layout_covers(const VkPipeState *s, const Layout *l, uint32_t fs_off, char *
     uint32_t nv = l->set1 ? l->n0 : l->n;
     int m = module_binding_missing(s->vs, l->b, nv, 0);
     const char *stage = "vertex";
-    if (m < 0 && s->gs) m = module_binding_missing(s->gs, l->b, nv, gs_offset(s)), stage = "geometry";
+    uint32_t off[5];
+    stage_offsets(s, off);   // mtf-recomp: the tessellation stages between the vertex and geometry stages
+    if (m < 0 && s->tcs && s->tes) m = module_binding_missing(s->tcs, l->b, nv, off[1]), stage = "tessellation control";
+    if (m < 0 && s->tcs && s->tes) m = module_binding_missing(s->tes, l->b, nv, off[2]), stage = "tessellation evaluation";
+    if (m < 0 && s->gs) m = module_binding_missing(s->gs, l->b, nv, off[3]), stage = "geometry";
     if (m < 0 && s->fs) {
         m = l->set1 ? module_binding_missing(s->fs, l->b + l->n0, l->n - l->n0, 0) : module_binding_missing(s->fs, l->b, l->n, fs_off);
         stage = "fragment";

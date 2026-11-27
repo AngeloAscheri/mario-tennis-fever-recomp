@@ -118,9 +118,11 @@ typedef struct {                       // normalized: zero where the state is dy
     uint8_t rate[17];                  // per binding: 0 unused, 1 vertex, 2 instance
     uint8_t indep;                     // P.indep when built: the probe draws through both layouts
     uint8_t meshp;                     // a task/mesh pipeline (mesh_pipe): monolithic, one set, no vertex input
-    uint8_t pad2;
+    uint8_t tessp;                     // mtf-recomp: with tessellation stages; monolithic, one set (no libraries)
     const GfxShader *mesh;             // VkPipeState.mesh
     const GfxShader *gs;               // VkPipeState.gs
+    const GfxShader *tcs, *tes;        // VkPipeState.tcs, tes (mtf-recomp)
+    uint32_t patch;                    // VkPipeState.patch with tessellation stages, else 0
 } GKey;
 
 extern PlatCond work_cv, done_cv;
@@ -187,7 +189,9 @@ typedef struct {
     uint8_t vs[32], fs[32];            // gfx_shader_input_id of each stage; fs all zero with has_fs 0
     uint32_t has_fs, has_gs;
     uint8_t gs[32];                    // the geometry stage's id with has_gs
-    VkPipeState s;                     // vs, fs, mesh, gs zero
+    uint32_t has_tess, pad_tess;       // mtf-recomp: tessellation stages, ids below
+    uint8_t tcs[32], tes[32];
+    VkPipeState s;                     // vs, fs, mesh, gs, tcs, tes zero
 } KeyRec;
 
 typedef struct {
@@ -241,6 +245,7 @@ uint32_t vs_union_missing(const VkPipeState *s, GfxShaderIo fin[32]);
 // the vertex module declares after its added outputs; bindings moved by off; set 0. NULL when it cannot (logged).
 uint32_t *gs_code(const GfxShader *gs, const GfxShader *vs, uint32_t vs_have, int topo_class, uint32_t off, uint64_t *n);
 uint32_t gs_offset(const VkPipeState *s);   // binding offset of the geometry stage: after the vertex stage's
+void stage_offsets(const VkPipeState *s, uint32_t off[5]);   // vertex, tess control, tess evaluation, geometry, fragment (mtf-recomp)
 // vk_pipe_gpl.c
 uint64_t pipe_qpc(void);
 double ms_since(uint64_t t0);

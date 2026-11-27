@@ -26,10 +26,17 @@
 #define SUP_IN 4               // support_in: viewport width, height, point size, alpha test reference
 #define NVN_STAGE_VS 0
 #define NVN_STAGE_FS 1
-#define NVN_STAGE_GS 2   // NVNshaderStage GEOMETRY (mtf-recomp: passthrough programs)
+#define NVN_STAGE_GS 2   // NVNshaderStage GEOMETRY (mtf-recomp)
+#define NVN_STAGE_TCS 3  // NVNshaderStage TESS_CONTROL (mtf-recomp)
+#define NVN_STAGE_TES 4  // NVNshaderStage TESS_EVALUATION (mtf-recomp)
 #define NVN_STAGE_CS 5
-// Slot of a stage in the per-stage c0 and c24 caches (DrawBind): vertex, fragment, compute, geometry.
-static inline int c0_slot(int st) { return st == NVN_STAGE_VS ? 0 : st == NVN_STAGE_FS ? 1 : st == NVN_STAGE_GS ? 3 : 2; }
+#define C0_SLOTS 6
+// Slot of a stage in the per-stage c0 and c24 caches (DrawBind): vertex, fragment, compute, geometry, tessellation
+// control, tessellation evaluation.
+static inline int c0_slot(int st) {
+    return st == NVN_STAGE_VS ? 0 : st == NVN_STAGE_FS ? 1 : st == NVN_STAGE_GS ? 3 : st == NVN_STAGE_TCS ? 4
+         : st == NVN_STAGE_TES ? 5 : 2;
+}
 
 enum { W_PROGRAM, W_SHADER, W_PIPELINE, W_NO_VS, W_INDEX, W_UB, W_BIND, W_SSBO_ALIGN, W_SSBO_SLOT, W_RESTART, W_INDIRECT, W_LISTED_R32, W_GEOMETRY, W_COUNT };
 void warn_once(int key, const char *fmt, ...);   // vk_exec_draw.c
@@ -55,15 +62,15 @@ typedef struct {
     VkBuffer sup_buf;
     VkDeviceSize sup_off;
     int sup_valid;
-    uint8_t c0[4][VK_C0_BYTES];          // last c0 bank per stage (c0_slot: vertex, fragment, compute, geometry) and where it lives
-    VkBuffer c0_buf[4];
-    VkDeviceSize c0_off[4];
-    int c0_valid[4];
-    struct { p_bind_buf ssbo[16], ubo[16]; uint32_t dim[3], binst; uint8_t table[5]; uint64_t tex[128], img[32]; uint8_t pc[NVN_C24_BYTES]; } c0_in[4];   // what vk_c0_fill read for c0[k]
-    uint8_t c24[4][NVN_C24_BYTES];       // last push-constant bank c24 per stage and where it lives (c24_info)
-    VkBuffer c24_buf[4];
-    VkDeviceSize c24_off[4];
-    int c24_valid[4];
+    uint8_t c0[C0_SLOTS][VK_C0_BYTES];          // last c0 bank per stage (c0_slot) and where it lives
+    VkBuffer c0_buf[C0_SLOTS];
+    VkDeviceSize c0_off[C0_SLOTS];
+    int c0_valid[C0_SLOTS];
+    struct { p_bind_buf ssbo[16], ubo[16]; uint32_t dim[3], binst; uint8_t table[5]; uint64_t tex[128], img[32]; uint8_t pc[NVN_C24_BYTES]; } c0_in[C0_SLOTS];   // what vk_c0_fill read for c0[k]
+    uint8_t c24[C0_SLOTS][NVN_C24_BYTES];       // last push-constant bank c24 per stage and where it lives (c24_info)
+    VkBuffer c24_buf[C0_SLOTS];
+    VkDeviceSize c24_off[C0_SLOTS];
+    int c24_valid[C0_SLOTS];
     VkPipelineLayout ds_layout;          // graphics layout the sets below were last pushed or bound with
     VkDescriptorSet ds_bound[2];         // allocated set bound per set number (0: none or pushed since)
     VkDescriptorSet ds_last[2];          // last allocated and written set per set number, contents in DS
@@ -175,7 +182,9 @@ enum { VK_C0_DISPATCH = 0x4 };   // compute: the dispatch's group counts in c0 (
 static inline int c0_ssbo_base(int stage) {
     switch (stage) {
     case NVN_STAGE_VS: return 0x110;
-    case NVN_STAGE_GS: return 0x410;   // 0x100 per graphics stage in Ryujinx's order VS, TCS, TES, GS, FS (mtf-recomp)
+    case NVN_STAGE_TCS: return 0x210;   // mtf-recomp: 0x100 per graphics stage in Ryujinx's order VS, TCS, TES, GS, FS
+    case NVN_STAGE_TES: return 0x310;
+    case NVN_STAGE_GS: return 0x410;
     case NVN_STAGE_FS: return 0x510;
     case NVN_STAGE_CS: return 0x310;
     case 6: return 0x670;
