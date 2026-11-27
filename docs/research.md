@@ -113,8 +113,11 @@ recorder, not the handle. The recorders start with 256 bytes of control memory a
 
 ### Geometry programs (27/11/2026)
 
-143 programs met on the tutorial's court have a geometry stage (NVN stage 2). 141 also have tessellation stages and
-draw patches, which the runtime does not translate yet. The other two are passthrough programs (SPH word 0 bit 24):
+143 programs the game registers by the tutorial's court (nvnProgramSetShaders) have a geometry stage (NVN stage 2).
+128 of them also have tessellation stages (VS, TCS, TES, GS, FS), but none of those is drawn there: in a 60 s run to
+the court (10 764 frames) no draw's program had a tessellation stage and no draw was skipped (corrected 27/11/2026;
+this said 141 programs that draw patches). Of the 15 without tessellation, two are drawn, both passthrough programs
+(SPH word 0 bit 24):
 they set per-primitive outputs and pass the vertices on, ending with NVIDIA's exit handler (`LEPC`, `BMOV` into a
 barrier register, `EXIT`, `OUT.FINAL`, `EXIT`):
 

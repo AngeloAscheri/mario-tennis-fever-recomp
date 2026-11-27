@@ -58,7 +58,8 @@ The open work, in order. Each item becomes one or more issues; the issue says wh
       come out with them.
 - [ ] The shadow cascades' viewports exceed `maxViewportDimensions` (Vulkan validation): fine on RADV, check other
       drivers; a fix would scale the transform in the geometry stage.
-- [ ] Tessellation (141 programs with tessellation and geometry stages draw patches, skipped).
+- [ ] Tessellation: 128 programs with tessellation and geometry stages are registered, none drawn up to the
+      tutorial's court. Find a scene that draws them before translating TCS and TES.
 - [x] The grass is speckled with black: an EXIT's own predicate operand was dropped, so the lanes under the
       court's alpha threshold that were not killed exited with 0 as albedo and normal
       ([research.md](research.md#exits-predicate-operand-27112026)).
