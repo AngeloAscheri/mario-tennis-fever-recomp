@@ -28,6 +28,8 @@ jobs:
       - uses: astral-sh/setup-uv@v6
       - run: uv sync
       - run: uv run ruff check
+      - name: Every folder README names its files
+        run: uv run tools/docs/check.py
       - name: The generator's modules import
         run: uv run python -c "import sys; sys.path.insert(0, 'recomp'); import gen, versions, layout, patches"
       - name: Tests (content guard, versions, lifter against Unicorn)
