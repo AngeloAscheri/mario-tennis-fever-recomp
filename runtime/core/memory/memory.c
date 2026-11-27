@@ -650,6 +650,11 @@ uint32_t mem_set_permission(uint64_t a, uint64_t n, uint32_t perm) {
             plat_mutex_unlock(&lock);
             return R_INVALID_STATE;
         }
+    for (unsigned k = 0; k < nstack_maps; k++)   // a static stack moved out of this data (stack_move, mtf-recomp)
+        if (a < stack_maps[k].src + stack_maps[k].size && stack_maps[k].src < a + n) {
+            plat_mutex_unlock(&lock);
+            return R_INVALID_STATE;
+        }
     memset(t, (int)perm, n / PAGE);
     protect(a, n, perm == PERM_RW ? PLAT_PROT_RW : perm == PERM_R ? PLAT_PROT_READ : PLAT_PROT_NONE, "module data");
     plat_mutex_unlock(&lock);
@@ -673,8 +678,22 @@ uint32_t mem_set_attribute(uint64_t a, uint64_t n, uint32_t mask, uint32_t at) {
     return R_OK;
 }
 
-// ---- 0x04/0x05 MapMemory, UnmapMemory: thread stacks move from heap or alias into the stack region by copy; the
-// source is inaccessible while moved and gets the contents back on unmap.
+// ---- 0x04/0x05 MapMemory, UnmapMemory: thread stacks move from heap, alias or a module's writable data into the stack
+// region by copy; the source is inaccessible while moved and gets the contents back on unmap.
+// A module's data (.data, .bss: CodeData on Horizon, which can be aliased as heap memory can) holds the static stacks
+// some games give their threads (mtf-recomp: Mario Tennis Fever's engine starts one from basic's .bss when a free match
+// is set up; nn::os::CreateThread tries 64 random places in the stack region and aborts when every MapMemory fails).
+// Every page must be RW now and not RELRO-locked, as Horizon requires of an aliased source.
+static int module_data_rw(uint64_t a, uint64_t n) {   // under lock
+    int i = module_data(a, n);
+    if (i < 0) return 0;
+    const RtLoaded *m = ldr_module(i);
+    const uint8_t *t = perm_table(i) + (a - m->base - m->data_off) / PAGE;
+    for (uint64_t p = 0; p < n / PAGE; p++)
+        if (t[p] != PERM_RW) return 0;   // another permission, or ATTR_PERMISSION_LOCKED
+    return 1;
+}
+
 static int alias_all_mapped(uint64_t a, uint64_t n) {   // under lock
     uint64_t first = (a - L.alias.base) / PAGE;
     for (uint64_t i = 0; i < n / PAGE; i++)
@@ -687,10 +706,11 @@ static uint32_t stack_move(int unmap, uint64_t dst, uint64_t src, uint64_t n) {
     if (!inside(dst, n, L.stack)) return R_INVALID_REGION;
     int in_heap = inside(src, n, (RtRange){L.heap.base, heap_size});
     int in_alias = inside(src, n, L.alias);
-    if (!in_heap && !in_alias) return R_INVALID_REGION;
+    int in_module = !in_heap && !in_alias && module_data(src, n) >= 0;
+    if (!in_heap && !in_alias && !in_module) return R_INVALID_REGION;
     plat_mutex_lock(&lock);
     uint32_t r = R_OK;
-    if (in_alias && !alias_all_mapped(src, n)) {
+    if ((in_alias && !alias_all_mapped(src, n)) || (in_module && !unmap && !module_data_rw(src, n))) {
         r = R_INVALID_REGION;
         goto out;
     }
