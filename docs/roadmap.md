@@ -57,7 +57,9 @@ The open work, in order. Each item becomes one or more issues; the issue says wh
 - [ ] The shadow cascades' viewports exceed `maxViewportDimensions` (Vulkan validation): fine on RADV, check other
       drivers; a fix would scale the transform in the geometry stage.
 - [ ] Tessellation (141 programs with tessellation and geometry stages draw patches, skipped).
-- [ ] The grass is speckled with black: look at its material and lighting.
+- [x] The grass is speckled with black: an EXIT's own predicate operand was dropped, so the lanes under the
+      court's alpha threshold that were not killed exited with 0 as albedo and normal
+      ([research.md](research.md#exits-predicate-operand-27112026)).
 - [ ] The tutorial's message boxes show no text (the same missing glyphs as the title screen).
 - [ ] Some runs skip the movie and show a black screen with a few glyphs instead: find what decides it.
 

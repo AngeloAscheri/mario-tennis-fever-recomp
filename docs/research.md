@@ -130,6 +130,16 @@ barrier register, `EXIT`, `OUT.FINAL`, `EXIT`):
 
 SPH output map, VTG layout (byte offsets): 0x35 bit 1 marks a layer output, bits 4-7 the position.
 
+### EXIT's predicate operand (27/11/2026)
+
+The court's grass came out with black specks, 46 % of its pixels at albedo (0, 0, 0) and normal (0, 0, 0), with no
+gradient at their edges. The court is one draw (program 4624 on this run, 2048x2048 BC1/BC5/BC4 textures) whose
+fragment program tests the albedo texel against a threshold: `FSETP.GEU P0` on it, `FSETP.GT P1` on an attribute
+(`> 0`, with `!P0`), `@P1 KILL`, then `@!P0 EXIT` with `P1` as EXIT's own predicate operand. As BRA's (01/11/2026),
+that operand must hold together with the guard: the EXIT ends only the lanes the KILL removed. The translator took
+the guard alone, so every lane under the threshold exited early with its output registers still 0. Six of the 440
+programs met so far carry such an EXIT; none of RET, CALL or BRX does. mkw-recomp's translator has the same gap.
+
 ### Open questions
 
 1. Where does the engine keep its shaders? `nvnProgramSetShaders` is imported; the `sysCustomShader*` names suggest a
