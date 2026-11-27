@@ -336,3 +336,230 @@ out:
     free(size), free(val), free(arr_elem), free(ptr_to), free(is_u32), free(other_ptr);
     return o;
 }
+
+// ---- passthrough geometry stage (mtf-recomp)
+// The translator writes one module per passthrough geometry program, for triangles and every attribute Location
+// (sm86/translate/glsl/head.py gs_head, gs_main): main() copies in_attr<L>[v] to out_attr<L> for each vertex v < GS_NV.
+// A pipeline gets it adapted to its vertex stage and topology:
+//  - topology class 0 points, 1 lines, 2 triangles: the input and output execution modes, OutputVertices, the length of
+//    the per-vertex Input arrays and GS_NV become 1, 2 or 3;
+//  - GS_CLIP becomes the clip distances the vertex stage writes, and the input gl_PerVertex block gets the members of
+//    the vertex module's output block (ClipDistance's length, CullDistance), as interface matching requires;
+//  - every Input and Output variable at a Location outside keep (what the vertex stage writes: Vulkan requires each
+//    input of a stage to be written by the one before) goes, with its name and decorations, its entry in the interface,
+//    and the access chains, loads and stores that use it. Any other use of such a variable fails the rewrite.
+// NULL when the module is not in that form (logged by the caller).
+enum { GS_OP_NAME = 5, GS_OP_EXECUTION_MODE = 16, GS_OP_TYPE_ARRAY = 28, GS_OP_TYPE_STRUCT = 30, GS_OP_SPEC_CONSTANT = 50,
+       GS_OP_LOAD = 61, GS_OP_STORE = 62, GS_OP_COPY_MEMORY = 63, GS_OP_ACCESS_CHAIN = 65, GS_OP_IN_BOUNDS_ACCESS_CHAIN = 66,
+       GS_OP_MEMBER_NAME = 6, GS_OP_MEMBER_DECORATE = 72, GS_DEC_SPEC_ID = 1, GS_SC_INPUT = 1,
+       GS_EM_INPUT_POINTS = 19, GS_EM_INPUT_LINES = 20, GS_EM_TRIANGLES = 22, GS_EM_OUTPUT_VERTICES = 26,
+       GS_EM_OUTPUT_POINTS = 27, GS_EM_OUTPUT_LINE_STRIP = 28, GS_EM_OUTPUT_TRIANGLE_STRIP = 29 };
+
+// The vertex module's output gl_PerVertex block (glslang's: Position, PointSize, ClipDistance, CullDistance): the
+// length of its ClipDistance array and of its CullDistance array (0: no such member). 0 when it has no such block.
+int spirv_vs_block(const uint32_t *w, uint64_t n, uint32_t *clip_len, uint32_t *cull_len) {
+    uint32_t bound = n >= 5 ? w[3] : 0, st = 0, kc = ~0u, kd = ~0u;
+    *clip_len = *cull_len = 0;
+    if (!bound) return 0;
+    for (uint64_t i = 5; i < n; i += w[i] >> 16) {   // the struct whose members are ClipDistance and CullDistance
+        uint32_t op = w[i] & 0xffff, len = w[i] >> 16;
+        if (!len || i + len > n) return 0;
+        if (op == GS_OP_MEMBER_DECORATE && len >= 5 && w[i + 3] == SPV_DEC_BUILTIN && (w[i + 4] == 3 || w[i + 4] == 4)) {
+            if (st && st != w[i + 1]) return 0;   // two blocks: not a vertex module's
+            st = w[i + 1];
+            if (w[i + 4] == 3) kc = w[i + 2];
+            else kd = w[i + 2];
+        }
+    }
+    if (!st || kc == ~0u) return 0;
+    uint32_t tc = 0, td = 0;
+    for (uint64_t i = 5; i < n; i += w[i] >> 16)
+        if ((w[i] & 0xffff) == GS_OP_TYPE_STRUCT && w[i + 1] == st) {
+            uint32_t len = w[i] >> 16;
+            if (kc + 2 < len) tc = w[i + 2 + kc];
+            if (kd != ~0u && kd + 2 < len) td = w[i + 2 + kd];
+        }
+    uint32_t lc = 0, ld = 0;   // the arrays' length constants
+    for (uint64_t i = 5; i < n; i += w[i] >> 16)
+        if ((w[i] & 0xffff) == GS_OP_TYPE_ARRAY && (w[i] >> 16) >= 4) {
+            if (w[i + 1] == tc) lc = w[i + 3];
+            if (td && w[i + 1] == td) ld = w[i + 3];
+        }
+    for (uint64_t i = 5; i < n; i += w[i] >> 16)
+        if ((w[i] & 0xffff) == SPV_OP_CONSTANT && (w[i] >> 16) >= 4) {
+            if (lc && w[i + 2] == lc) *clip_len = w[i + 3];
+            if (ld && w[i + 2] == ld) *cull_len = w[i + 3];
+        }
+    return *clip_len >= 1 && *clip_len <= 8 && (!td || (*cull_len >= 1 && *cull_len <= 8));
+}
+
+uint32_t *spirv_gs_adapt(const uint32_t *w, uint64_t n, int topo_class, uint32_t keep, int clip, uint32_t vs_clip_len,
+                         uint32_t vs_cull_len, uint64_t *out_n) {
+    if (n < 5 || topo_class < 0 || topo_class > 2 || clip < 0 || clip > 8 || vs_clip_len < 1 || vs_clip_len > 8 ||
+        vs_cull_len > 8)
+        return NULL;
+    uint32_t bound = w[3], nv = (uint32_t)topo_class + 1;
+    uint32_t blk = 0, blk_clip = ~0u, f32 = 0, u32 = 0;   // the input gl_PerVertex, its ClipDistance member, float, uint
+    uint8_t *drop = calloc(bound + 1, 1), *in_arr = calloc(bound + 1, 1), *bad_arr = calloc(bound + 1, 1);
+    int32_t *loc = calloc(bound + 1, sizeof *loc);
+    uint32_t *ptr_sc = calloc(bound + 1, sizeof *ptr_sc), *ptr_to = calloc(bound + 1, sizeof *ptr_to);
+    uint32_t *o = malloc((n + 32) * 4);
+    uint32_t nv_id = 0, clip_id = 0, new_len = 0, len_type = 0;
+    uint64_t at = 0;
+    if (!drop || !in_arr || !bad_arr || !loc || !ptr_sc || !ptr_to || !o) goto fail;
+    // pass 1: Locations, spec ids, pointers, and the variables to drop
+    for (uint64_t i = 5; i < n;) {
+        uint32_t op = w[i] & 0xffff, len = w[i] >> 16;
+        if (!len || i + len > n) goto fail;
+        const uint32_t *a = w + i + 1;
+        if (op == SPV_OP_DECORATE && len >= 4 && a[0] < bound) {
+            if (a[1] == SPV_DEC_LOCATION) loc[a[0]] = (int32_t)a[2] + 1;
+            else if (a[1] == GS_DEC_SPEC_ID && a[2] == 4000) nv_id = a[0];   // GS_NV (head.py GS_NV_ID)
+            else if (a[1] == GS_DEC_SPEC_ID && a[2] == 4001) clip_id = a[0];   // GS_CLIP
+        } else if (op == SPV_OP_TYPE_POINTER && len >= 4 && a[0] < bound) {
+            ptr_sc[a[0]] = a[1], ptr_to[a[0]] = a[2];
+        } else if (op == SPV_OP_VARIABLE && len >= 4 && a[1] < bound && a[0] < bound) {
+            uint32_t sc = a[2], l = loc[a[1]];
+            if ((sc == GS_SC_INPUT || sc == SPV_SC_OUTPUT) && l > 0 && !(keep >> (l - 1) & 1)) drop[a[1]] = 1;
+            else if (sc == GS_SC_INPUT && ptr_to[a[0]] < bound) in_arr[ptr_to[a[0]]] = 1;   // a kept per-vertex input
+        }
+        i += len;
+    }
+    if (!nv_id || !clip_id) goto fail;   // not the translator's passthrough module
+    // the input block: the element of a per-vertex Input array that carries BuiltIn members; float and uint from its
+    // ClipDistance array (float[8]: its element and its length's type)
+    for (uint64_t i = 5; i < n && !blk; i += w[i] >> 16)
+        if ((w[i] & 0xffff) == GS_OP_TYPE_ARRAY && (w[i] >> 16) >= 4 && w[i + 1] < bound && in_arr[w[i + 1]])
+            for (uint64_t j = 5; j < n; j += w[j] >> 16)
+                if ((w[j] & 0xffff) == GS_OP_MEMBER_DECORATE && (w[j] >> 16) >= 5 && w[j + 1] == w[i + 2] &&
+                    w[j + 3] == SPV_DEC_BUILTIN) {
+                    blk = w[i + 2];
+                    if (w[j + 4] == 3) blk_clip = w[j + 2];
+                }
+    for (uint64_t j = 5; blk && j < n; j += w[j] >> 16)   // its ClipDistance member's index
+        if ((w[j] & 0xffff) == GS_OP_MEMBER_DECORATE && (w[j] >> 16) >= 5 && w[j + 1] == blk && w[j + 3] == SPV_DEC_BUILTIN &&
+            w[j + 4] == 3)
+            blk_clip = w[j + 2];
+    if (!blk || blk_clip == ~0u) goto fail;
+    for (uint64_t i = 5; i < n; i += w[i] >> 16)
+        if ((w[i] & 0xffff) == GS_OP_TYPE_STRUCT && w[i + 1] == blk && blk_clip + 2 < (w[i] >> 16)) {
+            uint32_t arr = w[i + 2 + blk_clip];
+            for (uint64_t j = 5; j < i; j += w[j] >> 16)
+                if ((w[j] & 0xffff) == GS_OP_TYPE_ARRAY && w[j + 1] == arr) {
+                    f32 = w[j + 2];
+                    for (uint64_t k = 5; k < j; k += w[k] >> 16)
+                        if ((w[k] & 0xffff) == SPV_OP_CONSTANT && w[k + 2] == w[j + 3]) u32 = w[k + 1];
+                }
+        }
+    if (!f32 || !u32) goto fail;
+    // array types other than per-vertex inputs must keep their length
+    for (uint64_t i = 5; i < n; i += w[i] >> 16) {
+        uint32_t op = w[i] & 0xffff, len = w[i] >> 16;
+        const uint32_t *a = w + i + 1;
+        if (op == SPV_OP_TYPE_POINTER && len >= 4 && a[1] != GS_SC_INPUT && a[2] < bound) bad_arr[a[2]] = 1;
+        else if (op == GS_OP_TYPE_STRUCT)
+            for (uint32_t k = 1; k + 1 < len; k++)
+                if (a[k] < bound) bad_arr[a[k]] = 1;
+    }
+    // pass 2: the rewrite
+    memcpy(o, w, 5 * 4);
+    at = 5;
+    int in_fn = 0;
+    for (uint64_t i = 5; i < n;) {
+        uint32_t op = w[i] & 0xffff, len = w[i] >> 16;
+        const uint32_t *a = w + i + 1;
+        int keep_insn = 1;
+        if (op == SPV_OP_FUNCTION) in_fn = 1;
+        if (op == SPV_OP_ENTRY_POINT) {
+            uint32_t k = 2;   // the name, a NUL-terminated string in words
+            while (k < len - 1 && (a[k] >> 24)) k++;
+            k++;
+            uint64_t start = at;
+            for (uint32_t j = 0; j < k && j + 1 < len; j++) o[at + 1 + j] = a[j];
+            at += 1 + k;
+            for (uint32_t j = k; j + 1 < len; j++)
+                if (a[j] >= bound || !drop[a[j]]) o[at++] = a[j];
+            o[start] = (uint32_t)(at - start) << 16 | op;
+            i += len;
+            continue;
+        }
+        if ((op == GS_OP_NAME || op == GS_OP_MEMBER_NAME || op == SPV_OP_DECORATE) && len >= 2 && a[0] < bound && drop[a[0]])
+            keep_insn = 0;
+        else if (op == GS_OP_MEMBER_DECORATE && len >= 5 && a[0] == blk && a[1] == blk_clip && a[2] == SPV_DEC_BUILTIN) {
+            memcpy(o + at, w + i, len * 4), at += len;   // the vertex block's CullDistance follows its ClipDistance
+            if (vs_cull_len) o[at++] = 5u << 16 | GS_OP_MEMBER_DECORATE, o[at++] = blk, o[at++] = blk_clip + 1,
+                             o[at++] = SPV_DEC_BUILTIN, o[at++] = 4;
+            i += len;
+            continue;
+        } else if (op == GS_OP_TYPE_STRUCT && len >= 2 && a[0] == blk) {
+            if (blk_clip + 3 != len) goto fail;   // ClipDistance must be its last member, as the translator writes it
+            uint32_t lc = bound++, ac = bound++;
+            o[at++] = 4u << 16 | SPV_OP_CONSTANT, o[at++] = u32, o[at++] = lc, o[at++] = vs_clip_len;
+            o[at++] = 4u << 16 | GS_OP_TYPE_ARRAY, o[at++] = ac, o[at++] = f32, o[at++] = lc;
+            uint32_t ad = 0;
+            if (vs_cull_len) {
+                uint32_t ld = bound++;
+                ad = bound++;
+                o[at++] = 4u << 16 | SPV_OP_CONSTANT, o[at++] = u32, o[at++] = ld, o[at++] = vs_cull_len;
+                o[at++] = 4u << 16 | GS_OP_TYPE_ARRAY, o[at++] = ad, o[at++] = f32, o[at++] = ld;
+            }
+            o[at++] = (len + (ad ? 1u : 0u)) << 16 | op;
+            for (uint32_t k = 0; k + 1 < len; k++) o[at++] = k == blk_clip + 1 ? ac : a[k];
+            if (ad) o[at++] = ad;
+            i += len;
+            continue;
+        }
+        else if (op == GS_OP_EXECUTION_MODE && len >= 3 && topo_class != 2) {
+            uint32_t m = a[1];
+            static const uint32_t in_mode[3] = {GS_EM_INPUT_POINTS, GS_EM_INPUT_LINES, GS_EM_TRIANGLES};
+            static const uint32_t out_mode[3] = {GS_EM_OUTPUT_POINTS, GS_EM_OUTPUT_LINE_STRIP, GS_EM_OUTPUT_TRIANGLE_STRIP};
+            memcpy(o + at, w + i, len * 4);
+            if (m == GS_EM_TRIANGLES) o[at + 2] = in_mode[topo_class];
+            else if (m == GS_EM_OUTPUT_TRIANGLE_STRIP) o[at + 2] = out_mode[topo_class];
+            else if (m == GS_EM_OUTPUT_VERTICES && len >= 4) o[at + 3] = nv;
+            at += len, i += len;
+            continue;
+        } else if (op == GS_OP_TYPE_ARRAY && len >= 4 && topo_class != 2 && a[0] < bound && in_arr[a[0]]) {
+            if (bad_arr[a[0]]) goto fail;   // shared with something that is not a per-vertex input
+            if (!new_len) {   // the new length, declared before its first use with the old length's type
+                len_type = 0;
+                for (uint64_t j = 5; j < i; j += w[j] >> 16)
+                    if ((w[j] & 0xffff) == SPV_OP_CONSTANT && (w[j] >> 16) >= 4 && w[j + 2] == a[2]) len_type = w[j + 1];
+                if (!len_type) goto fail;
+                new_len = bound++;
+                o[at++] = 4u << 16 | SPV_OP_CONSTANT, o[at++] = len_type, o[at++] = new_len, o[at++] = nv;
+            }
+            o[at++] = w[i], o[at++] = a[0], o[at++] = a[1], o[at++] = new_len;
+            i += len;
+            continue;
+        } else if (op == GS_OP_SPEC_CONSTANT && len >= 4 && (a[1] == nv_id || a[1] == clip_id)) {
+            memcpy(o + at, w + i, len * 4);
+            o[at + 3] = a[1] == nv_id ? nv : (uint32_t)clip;
+            at += len, i += len;
+            continue;
+        } else if (op == SPV_OP_VARIABLE && len >= 4 && a[1] < bound && drop[a[1]]) {
+            keep_insn = 0;
+        } else if ((op == GS_OP_ACCESS_CHAIN || op == GS_OP_IN_BOUNDS_ACCESS_CHAIN) && len >= 4 && a[2] < bound && drop[a[2]]) {
+            if (a[1] < bound) drop[a[1]] = 1;
+            keep_insn = 0;
+        } else if (op == GS_OP_LOAD && len >= 4 && a[2] < bound && drop[a[2]]) {
+            if (a[1] < bound) drop[a[1]] = 1;
+            keep_insn = 0;
+        } else if ((op == GS_OP_STORE || op == GS_OP_COPY_MEMORY) && len >= 3 &&
+                   ((a[0] < bound && drop[a[0]]) || (a[1] < bound && drop[a[1]]))) {
+            keep_insn = 0;
+        } else if (in_fn) {   // any other use of a dropped id in a function: not the expected form
+            for (uint32_t k = 0; k + 1 < len; k++)
+                if (a[k] < bound && drop[a[k]]) goto fail;
+        }
+        if (keep_insn) memcpy(o + at, w + i, len * 4), at += len;
+        i += len;
+    }
+    o[3] = bound;
+    free(drop), free(in_arr), free(bad_arr), free(loc), free(ptr_sc), free(ptr_to);
+    *out_n = at;
+    return o;
+fail:
+    free(drop), free(in_arr), free(bad_arr), free(loc), free(ptr_sc), free(ptr_to), free(o);
+    return NULL;
+}

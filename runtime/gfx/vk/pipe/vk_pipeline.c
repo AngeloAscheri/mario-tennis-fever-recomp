@@ -655,7 +655,7 @@ uint32_t vk_pipeline_target_wmask(const VkPipeState *s, int i) { return target_w
 
 void gkey_fill(const VkPipeState *s, GKey *k) {
     memset(k, 0, sizeof *k);
-    k->vs = s->vs, k->fs = s->fs;
+    k->vs = s->vs, k->fs = s->fs, k->gs = s->gs;
     k->indep = (uint8_t)P.indep;
     if (mesh_pipe(s)) k->meshp = 1, k->mesh = s->mesh, k->indep = 0;
     k->n_color = (uint8_t)target_count(s);
@@ -720,6 +720,36 @@ uint32_t vs_union_missing(const VkPipeState *s, GfxShaderIo fin[32]) {
     for (int i = 0; i < 32; i++)
         if (need >> i & 1 && !(have >> i & 1)) missing |= 1u << i;
     return missing;
+}
+
+// ---- the passthrough geometry stage (mtf-recomp)
+// Its bindings follow the vertex stage's in set 0 (with independent layouts too: both are pre-rasterization), the
+// fragment stage's follow both in a single set. Its module is adapted per pipeline (vk_spirv_patch.c spirv_gs_adapt):
+// it passes on exactly the Locations the vertex module declares, so the fragment stage sees what it saw without it.
+uint32_t gs_offset(const VkPipeState *s) { return binding_span(s->vs) - 1; }
+
+uint32_t *gs_code(const GfxShader *gs, const GfxShader *vs, uint32_t vs_have, int topo_class, uint32_t off, uint64_t *n) {
+    // the vertex module's gl_PerVertex as make_module will create it (spirv_fixup may drop its CullDistance)
+    uint64_t vw = 0, fw = 0, w = 0, n1 = 0;
+    const uint32_t *vcode = gfx_shader_spirv(vs, &vw);
+    uint32_t *vfixed = vcode ? spirv_fixup(vcode, vw, &fw) : NULL, clip_len = 0, cull_len = 0;
+    int vblock = vcode && spirv_vs_block(vfixed ? vfixed : vcode, vfixed ? fw : vw, &clip_len, &cull_len);
+    free(vfixed);
+    const uint32_t *code = gfx_shader_spirv(gs, &w);
+    uint32_t *a = code && vblock ? spirv_gs_adapt(code, w, topo_class, vs_have, gfx_shader_clip(vs), clip_len, cull_len, &n1)
+                                 : NULL;
+    if (!a) {
+        LOG_ONCE("vk_pipeline: a geometry stage cannot be adapted (topology class %d, vertex outputs %#x, vertex block %d)",
+                 topo_class, vs_have, vblock);
+        return NULL;
+    }
+    if (off) {
+        uint32_t *r = spirv_rebind(a, n1, off);
+        free(a);
+        if (!(a = r)) return NULL;
+    }
+    *n = n1;
+    return a;
 }
 
 // MKW_FS_SOLID=<hash>[,<hash>...] (diagnosis): fragment shaders with that SPIR-V hash (the dump's sh_<hash>, FNV-1a
@@ -955,10 +985,11 @@ void pipe_test_stall(const GfxShader *vs, const GfxShader *fs) {
 VkPipeline create_graphics(const VkPipeState *s, const GKey *k, const Layout *l, uint32_t fs_off) {
     if (k->meshp) return create_mesh(s, k, l);
     pipe_test_stall(s->vs, s->fs);
-    VkShaderModule vm = VK_NULL_HANDLE, fm = VK_NULL_HANDLE;
+    VkShaderModule vm = VK_NULL_HANDLE, fm = VK_NULL_HANDLE, gm = VK_NULL_HANDLE;
     uint64_t vw, fw;
     const uint32_t *vcode = gfx_shader_spirv(s->vs, &vw);
     uint32_t *vpatched = NULL, *fpatched = NULL;
+    uint32_t vs_have = gfx_shader_outputs(s->vs, NULL);   // the vertex module's output Locations, added ones included
     if (l->set1) {   // independent layouts: outputs from the vertex shader's union, not from this fragment shader
         GfxShaderIo fin[32];
         uint32_t missing = vs_union_missing(s, fin);
@@ -966,7 +997,7 @@ VkPipeline create_graphics(const VkPipeState *s, const GKey *k, const Layout *l,
             uint64_t n2 = 0;
             vpatched = spirv_add_outputs(vcode, vw, missing, fin, &n2);
             if (!vpatched) LOG_ONCE("vk_pipeline: cannot add missing vertex outputs (mask %#x)", missing);
-            else vcode = vpatched, vw = n2;
+            else vcode = vpatched, vw = n2, vs_have |= missing;
         }
     }
     if (s->fs) {
@@ -982,7 +1013,7 @@ VkPipeline create_graphics(const VkPipeState *s, const GKey *k, const Layout *l,
             uint64_t n2 = 0;
             vpatched = spirv_add_outputs(vcode, vw, missing, fin, &n2);
             if (!vpatched) LOG_ONCE("vk_pipeline: cannot add missing vertex outputs (mask %#x)", missing);
-            else vcode = vpatched, vw = n2;
+            else vcode = vpatched, vw = n2, vs_have |= missing;
         }
         const uint32_t *fcode = gfx_shader_spirv(s->fs, &fw);
         if (k->dsb) {
@@ -1010,18 +1041,33 @@ VkPipeline create_graphics(const VkPipeState *s, const GKey *k, const Layout *l,
         if (fcode) fm = make_module(fcode, fw);
     }
     vm = make_module(vcode, vw);
+    if (s->gs) {
+        uint64_t gw = 0;
+        uint32_t *gcode = gs_code(s->gs, s->vs, vs_have, k->topo_class, gs_offset(s), &gw);
+        if (gcode) gm = make_module(gcode, gw);
+        free(gcode);
+    }
     free(vpatched), free(fpatched);
     VkPipeline pipe = VK_NULL_HANDLE;
-    if (!vm || (s->fs && !fm)) goto out;
+    if (!vm || (s->fs && !fm) || (s->gs && !gm)) goto out;
 
-    VkPipelineShaderStageCreateInfo stages[2] = {
-        {.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, .stage = VK_SHADER_STAGE_VERTEX_BIT, .module = vm, .pName = "main"},
-        {.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, .stage = VK_SHADER_STAGE_FRAGMENT_BIT, .module = fm, .pName = "main"}};
+    VkPipelineShaderStageCreateInfo stages[3];
     VkPipelineShaderStageRequiredSubgroupSizeCreateInfo rqv, rqf;
+    uint32_t nst = 0;
+    stages[nst++] = (VkPipelineShaderStageCreateInfo){.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+                                                      .stage = VK_SHADER_STAGE_VERTEX_BIT, .module = vm, .pName = "main"};
     uint64_t sw;
     const uint32_t *scode = gfx_shader_spirv(s->vs, &sw);   // vcode may be a patched copy that is freed by now
     pin_subgroup32(&stages[0], &rqv, scode, sw);
-    if (s->fs) pin_subgroup32(&stages[1], &rqf, gfx_shader_spirv(s->fs, &sw), sw);
+    if (gm)
+        stages[nst++] = (VkPipelineShaderStageCreateInfo){.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+                                                          .stage = VK_SHADER_STAGE_GEOMETRY_BIT, .module = gm, .pName = "main"};
+    if (s->fs) {
+        stages[nst] = (VkPipelineShaderStageCreateInfo){.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+                                                        .stage = VK_SHADER_STAGE_FRAGMENT_BIT, .module = fm, .pName = "main"};
+        pin_subgroup32(&stages[nst], &rqf, gfx_shader_spirv(s->fs, &sw), sw);
+        nst++;
+    }
     VkVertexInputAttributeDescription va[32];
     VkVertexInputBindingDescription vb[17];
     uint32_t na = 0, nb = 0;
@@ -1074,7 +1120,7 @@ VkPipeline create_graphics(const VkPipeState *s, const GKey *k, const Layout *l,
                                         .pColorAttachmentFormats = (const VkFormat *)k->color,
                                         .depthAttachmentFormat = (VkFormat)k->depth, .stencilAttachmentFormat = (VkFormat)k->stencil};
     VkGraphicsPipelineCreateInfo pi = {.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO, .pNext = &ri,
-                                       .stageCount = s->fs ? 2 : 1, .pStages = stages, .pVertexInputState = &vi,
+                                       .stageCount = nst, .pStages = stages, .pVertexInputState = &vi,
                                        .pInputAssemblyState = &ia, .pViewportState = &vp, .pRasterizationState = &rs,
                                        .pMultisampleState = &ms, .pDepthStencilState = &ds, .pColorBlendState = &cb,
                                        .pDynamicState = &dy, .layout = l->layout};
@@ -1095,6 +1141,7 @@ VkPipeline create_graphics(const VkPipeState *s, const GKey *k, const Layout *l,
 out:
     if (vm) vkDestroyShaderModule(P.device, vm, NULL);
     if (fm) vkDestroyShaderModule(P.device, fm, NULL);
+    if (gm) vkDestroyShaderModule(P.device, gm, NULL);
     return pipe;
 }
 

@@ -120,6 +120,7 @@ typedef struct {                       // normalized: zero where the state is dy
     uint8_t meshp;                     // a task/mesh pipeline (mesh_pipe): monolithic, one set, no vertex input
     uint8_t pad2;
     const GfxShader *mesh;             // VkPipeState.mesh
+    const GfxShader *gs;               // VkPipeState.gs
 } GKey;
 
 extern PlatCond work_cv, done_cv;
@@ -131,7 +132,10 @@ typedef struct Lib { struct Lib *next; uint64_t hash; VkPipeline pipe; uint32_t 
 
 typedef struct { uint32_t kind, topo_class, attr_fmt[32], attr_off[32]; uint8_t attr_bind[32], rate[17], pad[3]; } ViKey;
 
-typedef struct { uint32_t kind, missing; const GfxShader *vs; uint8_t clamp, poly_mode, minus_w, pad; GfxShaderIo fin[32]; } PrKey;
+// gs: the geometry stage, adapted to the vertex stage's outputs (vs, missing) and to topo, the topology class (only
+// set with gs: a library without one serves every class).
+typedef struct { uint32_t kind, missing; const GfxShader *vs; uint8_t clamp, poly_mode, minus_w, topo; GfxShaderIo fin[32];
+                 const GfxShader *gs; } PrKey;
 
 typedef struct { uint32_t kind; uint8_t dsb, samples, a2c, alpha_func; const GfxShader *fs; } FsKey;
 
@@ -181,8 +185,9 @@ extern AsyncBuilds A;
 typedef struct { char magic[8]; uint32_t version, rec_size; } KeysHeader;
 typedef struct {
     uint8_t vs[32], fs[32];            // gfx_shader_input_id of each stage; fs all zero with has_fs 0
-    uint32_t has_fs, pad;
-    VkPipeState s;                     // vs, fs zero
+    uint32_t has_fs, has_gs;
+    uint8_t gs[32];                    // the geometry stage's id with has_gs
+    VkPipeState s;                     // vs, fs, mesh, gs zero
 } KeyRec;
 
 typedef struct {
@@ -232,6 +237,10 @@ typedef struct {
 } VtxInput;
 void vertex_input(const VkPipeState *s, VtxInput *v);
 uint32_t vs_union_missing(const VkPipeState *s, GfxShaderIo fin[32]);
+// The geometry stage's module for a pipeline (mtf-recomp): adapted to the topology class and to vs_have, the Locations
+// the vertex module declares after its added outputs; bindings moved by off; set 0. NULL when it cannot (logged).
+uint32_t *gs_code(const GfxShader *gs, const GfxShader *vs, uint32_t vs_have, int topo_class, uint32_t off, uint64_t *n);
+uint32_t gs_offset(const VkPipeState *s);   // binding offset of the geometry stage: after the vertex stage's
 // vk_pipe_gpl.c
 uint64_t pipe_qpc(void);
 double ms_since(uint64_t t0);

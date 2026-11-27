@@ -20,6 +20,9 @@ uint32_t *spirv_add_outputs(const uint32_t *w, uint64_t n, uint32_t missing, con
                             uint64_t *out_n);
 uint32_t *spirv_alpha_test(const uint32_t *w, uint64_t n, int func, uint64_t *out_n);
 uint32_t *spirv_fixup(const uint32_t *w, uint64_t n, uint64_t *out_n);
+uint32_t *spirv_gs_adapt(const uint32_t *w, uint64_t n, int topo_class, uint32_t keep, int clip, uint32_t vs_clip_len,
+                         uint32_t vs_cull_len, uint64_t *out_n);
+int spirv_vs_block(const uint32_t *w, uint64_t n, uint32_t *clip_len, uint32_t *cull_len);
 uint32_t *spirv_clamp_shared(const uint32_t *w, uint64_t n, uint32_t limit, uint64_t *out_n, uint32_t *from,
                              uint32_t *to);
 int uses_subgroup_ops(const uint32_t *w, uint64_t words);

@@ -23,7 +23,7 @@
 // built the pipeline and appended by the present thread (vk_pipeline_autosave) or at exit (vk_pipeline_save). A file
 // with another magic, version or record size is ignored and rewritten. Bump KEYS_VERSION when VkPipeState or the
 // record changes meaning without changing size.
-#define KEYS_VERSION 5                 // 3: shaders named by input id (gfx_shader.c); 4: prepared shaders by program key; 5: VkPipeState.mesh
+#define KEYS_VERSION 6                 // 3: shaders named by input id (gfx_shader.c); 4: prepared shaders by program key; 5: VkPipeState.mesh; 6: the geometry stage (mtf-recomp)
 KeyFile K = {.io = PLAT_MUTEX_INIT};
 
 static uint64_t rec_hash(const KeyRec *r) {
@@ -60,8 +60,9 @@ static void rec_fill(KeyRec *r, const VkPipeState *s) {
     memset(r, 0, sizeof *r);
     memcpy(r->vs, gfx_shader_input_id(s->vs), 32);
     if (s->fs) memcpy(r->fs, gfx_shader_input_id(s->fs), 32), r->has_fs = 1;
+    if (s->gs) memcpy(r->gs, gfx_shader_input_id(s->gs), 32), r->has_gs = 1;
     r->s = *s;
-    r->s.vs = r->s.fs = r->s.mesh = NULL;
+    r->s.vs = r->s.fs = r->s.mesh = r->s.gs = NULL;
     r->s.prim_restart = 0;   // dynamic state: the same pipeline either way
 }
 
@@ -323,8 +324,15 @@ static Pipe *pipe_miss(const VkPipeState *s, const GKey *k, uint64_t h, int mode
     Bindings B = {0};
     Layout *l = NULL;
     uint32_t span = binding_span(s->vs);
-    if (gfx_shader_stage(s->vs) != GFX_STAGE_VS || (s->fs && gfx_shader_stage(s->fs) != GFX_STAGE_FS)) why = "stage mismatch";
+    // the geometry stage's bindings follow the vertex stage's in set 0, the fragment stage's follow both (one set)
+    uint32_t goff = s->gs ? gs_offset(s) : 0, gspan = s->gs ? binding_span(s->gs) - 1 : 0, fs_off = span - 1 + gspan;
+    if (gfx_shader_stage(s->vs) != GFX_STAGE_VS || (s->fs && gfx_shader_stage(s->fs) != GFX_STAGE_FS) ||
+        (s->gs && gfx_shader_stage(s->gs) != GFX_STAGE_GS))
+        why = "stage mismatch";
     else if (k->topo_class == 3) why = "patches need tessellation stages, which are not translated";
+    else if (s->gs && k->meshp) why = "a geometry stage with task or mesh programs";
+    else if (s->gs && !vk_ctx()->has_geom_stage)
+        why = "the geometry stage needs geometryShader, shaderTessellationAndGeometryPointSize and multiViewport";
     else if (k->meshp) {   // one set: task, mesh, fragment (mesh_offsets)
         uint32_t mo, fo;
         mesh_offsets(s, &mo, &fo);
@@ -335,18 +343,20 @@ static Pipe *pipe_miss(const VkPipeState *s, const GKey *k, uint64_t h, int mode
         else if (!(l = layout_get(&B))) why = "descriptor layout creation failed";
     } else if (P.indep) {
         Bindings F = {0};
-        if (!add_stage(&B, s->vs, 0) || (s->fs && !add_stage(&F, s->fs, 0))) why = "too many bindings";
+        if (!add_stage(&B, s->vs, 0) || (s->gs && !add_stage(&B, s->gs, goff)) || (s->fs && !add_stage(&F, s->fs, 0)))
+            why = "too many bindings";
         else if (!(l = layout_pair(&B, &F))) why = "descriptor layout creation failed";
-        span = 1;
-    } else if (!add_stage(&B, s->vs, 0) || (s->fs && !add_stage(&B, s->fs, span - 1))) why = "too many bindings";
+        fs_off = 0;
+    } else if (!add_stage(&B, s->vs, 0) || (s->gs && !add_stage(&B, s->gs, goff)) || (s->fs && !add_stage(&B, s->fs, fs_off)))
+        why = "too many bindings";
     else if (!(l = layout_get(&B))) why = "descriptor layout creation failed";
     char lack[128];
-    if (!why && !k->meshp && !layout_covers(s, l, span - 1, lack, sizeof lack)) why = lack, l = NULL;
+    if (!why && !k->meshp && !layout_covers(s, l, fs_off, lack, sizeof lack)) why = lack, l = NULL;
     VkPipeline pipe = VK_NULL_HANDLE;
     Job *j = NULL;
     if (!why && mode && workers_start() && (j = calloc(1, sizeof *j))) {
-        *j = (Job){.l = l, .fs_off = span - 1, .low = mode == 2, .prebuild = mode == 2, .worker = -1, .s = *s, .k = *k};
-    } else if (!why && !(pipe = create_graphics(s, k, l, span - 1))) {
+        *j = (Job){.l = l, .fs_off = fs_off, .low = mode == 2, .prebuild = mode == 2, .worker = -1, .s = *s, .k = *k};
+    } else if (!why && !(pipe = create_graphics(s, k, l, fs_off))) {
         why = "pipeline creation failed";
     }
     if (why) {
@@ -696,8 +706,8 @@ static void prewarm_run(void) {
     t0 = now_ms();
     const KeyRec *r = (const KeyRec *)K.file;
     size_t n = K.file_n, m = 0;
-    uint8_t (*ids)[32] = malloc(2 * n * 32);
-    const GfxShader **sh = calloc(2 * n, sizeof *sh);
+    uint8_t (*ids)[32] = malloc(3 * n * 32);
+    const GfxShader **sh = calloc(3 * n, sizeof *sh);
     if (!ids || !sh) {
         free(ids), free(sh);
         plat_file_delete(mark);
@@ -706,6 +716,7 @@ static void prewarm_run(void) {
     for (size_t i = 0; i < n; i++) {
         memcpy(ids[m++], r[i].vs, 32);
         if (r[i].has_fs) memcpy(ids[m++], r[i].fs, 32);
+        if (r[i].has_gs) memcpy(ids[m++], r[i].gs, 32);
     }
     qsort(ids, m, 32, id_cmp);
     size_t u = 0;
@@ -736,12 +747,14 @@ static void prewarm_run(void) {
     for (size_t i = 0; i < n; i++) {
         const uint8_t (*v)[32] = bsearch(r[i].vs, ids, u, 32, id_cmp);
         const uint8_t (*f)[32] = r[i].has_fs ? bsearch(r[i].fs, ids, u, 32, id_cmp) : NULL;
-        const GfxShader *vs = v ? sh[v - ids] : NULL, *fs = f ? sh[f - ids] : NULL;
-        if (!vs || (r[i].has_fs && !fs)) {
+        const uint8_t (*g)[32] = r[i].has_gs ? bsearch(r[i].gs, ids, u, 32, id_cmp) : NULL;
+        const GfxShader *vs = v ? sh[v - ids] : NULL, *fs = f ? sh[f - ids] : NULL, *gs = g ? sh[g - ids] : NULL;
+        if (!vs || (r[i].has_fs && !fs) || (r[i].has_gs && !gs)) {
             dropped++;
             continue;
         }
         VkPipeState s = r[i].s;
+        s.gs = gs;
         // A vertex shader fed integer attributes was drawn as its integer-input variant, which the record names by
         // the base program (gfx_shader.c int_input_variant keeps the program key as its id): built from the base, the
         // pipeline paired float inputs with integer formats, the likely cause of RADV's crash in run49.

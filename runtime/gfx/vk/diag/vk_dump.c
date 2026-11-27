@@ -207,7 +207,7 @@ static void flush_luts(VkExec *ex, int n) {
 
 static int nvn_stage(int gfx_stage) {
     if (gfx_stage & VK_PIPE_STAGE_NVN) return gfx_stage & 7;   // task or mesh binding
-    return gfx_stage == GFX_STAGE_VS ? 0 : gfx_stage == GFX_STAGE_FS ? 1 : 5;
+    return gfx_stage == GFX_STAGE_VS ? 0 : gfx_stage == GFX_STAGE_FS ? 1 : gfx_stage == GFX_STAGE_GS ? 2 : 5;
 }
 
 static const char *decl_type(uint16_t t, char tmp[24]) {
@@ -405,6 +405,7 @@ void vk_dump_draw(VkExec *ex, const VkPipeState *s, VkPipeline p, const VkPipeIn
         goto out;
     }
     Str b = {0};
+    if (s->gs) sp(&b, "gs %016llx ", (unsigned long long)shader_hash(s->gs));   // the passthrough geometry stage
     sp(&b, "vs %016llx fs %016llx prog %llu prim %d; depth test %d write %d func %d; wmask t0 %#x t1 %#x; blend0 %llx "
            "fs outputs %#x; discard %d vp %.0f,%.0f %.0fx%.0f z %.2f-%.2f range %.2f-%.2f scissor %d,%d %dx%d (set %d) samples %u\n",
        (unsigned long long)shader_hash(s->vs),

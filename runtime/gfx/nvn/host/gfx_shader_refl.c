@@ -224,7 +224,8 @@ void gfx_shader_reflect(GfxShader *s) {
     const char *js = s->reflection;
     char stage[8];
     json_str(js, js + strlen(js), "stage", stage, sizeof stage);
-    s->stage = !strcmp(stage, "cs") ? GFX_STAGE_CS : !strcmp(stage, "ps") ? GFX_STAGE_FS : GFX_STAGE_VS;
+    s->stage = !strcmp(stage, "cs") ? GFX_STAGE_CS : !strcmp(stage, "ps") ? GFX_STAGE_FS
+             : !strcmp(stage, "gs") ? GFX_STAGE_GS : GFX_STAGE_VS;   // gs: a passthrough geometry program (mtf-recomp)
     s->mesh_kind = !strcmp(stage, "task") ? GFX_MESH_TASK : !strcmp(stage, "mesh") ? GFX_MESH_MESH : GFX_MESH_NONE;
     char t[32];
     unsigned c[5];
@@ -242,6 +243,8 @@ void gfx_shader_reflect(GfxShader *s) {
     s->first_store = s->stage == GFX_STAGE_CS ? (int)json_int(js, js + strlen(js), "first_store", 0) : 0;
     s->int_inputs = (uint32_t)json_int(js, js + strlen(js), "int_inputs", 0);
     s->raw_outputs = (uint32_t)json_int(js, js + strlen(js), "raw_outputs", 0);
+    long clip = json_int(js, js + strlen(js), "clip", 0);   // the clip distances a vertex shader writes (head.py)
+    s->clip = (uint8_t)(clip > 0 && clip <= 8 ? clip : 0);
     reflect_spirv(s);
 }
 

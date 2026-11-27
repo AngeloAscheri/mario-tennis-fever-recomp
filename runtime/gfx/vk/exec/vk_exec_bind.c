@@ -80,7 +80,8 @@ _Thread_local uint64_t bind_gen = 1;
 
 static int nvn_stage_of(int gfx_stage) {
     if (gfx_stage & VK_PIPE_STAGE_NVN) return gfx_stage & 7;   // a task or mesh binding (vk_pipeline.c add_stage)
-    return gfx_stage == GFX_STAGE_VS ? NVN_STAGE_VS : gfx_stage == GFX_STAGE_FS ? NVN_STAGE_FS : NVN_STAGE_CS;
+    return gfx_stage == GFX_STAGE_VS ? NVN_STAGE_VS : gfx_stage == GFX_STAGE_FS ? NVN_STAGE_FS
+         : gfx_stage == GFX_STAGE_GS ? NVN_STAGE_GS : NVN_STAGE_CS;
 }
 
 static VkDescriptorBufferInfo zero_info(uint64_t max) {
@@ -157,7 +158,7 @@ static int c24_on(void);
 // photo mode's 1.5x scale of the picture to 3840x2160 (cs 07a03741f7478a83) clamps and offsets its reads by them;
 // with zeros it wrote black and photo mode showed a black screen (issue #384; ph8, 1440 lines, 16/11/2026).
 static VkDescriptorBufferInfo c0_info(VkExec *ex, int st) {
-    int k = st == NVN_STAGE_VS ? 0 : st == NVN_STAGE_FS ? 1 : 2;
+    int k = c0_slot(st);
     // vk_c0_fill reads the storage slots, and the uniform slots and dispatch size for compute or the base instance for
     // graphics: equal inputs give the same bank, so neither the fill nor the 2 KiB compare is needed.
     typeof(B.c0_in[0]) in;
@@ -201,7 +202,7 @@ static int c24_on(void) {   // MKW_PUSH_CONST=0: c24 reads zeros, as before the 
 // The push-constant bank c24 (OP_PUSH_CONST) from replay scratch; a bank equal to the stage's previous one reuses its
 // range. The shaders declare the bank at its full 64 KiB: reads past these 256 bytes return zero (robustBufferAccess).
 static VkDescriptorBufferInfo c24_info(VkExec *ex, int st) {
-    int k = st == NVN_STAGE_VS ? 0 : st == NVN_STAGE_FS ? 1 : 2;
+    int k = c0_slot(st);
     if (!B.c24_valid[k] || memcmp(ex->c24[st], B.c24[k], NVN_C24_BYTES)) {
         memcpy(scratch(ex, NVN_C24_BYTES, &B.c24_buf[k], &B.c24_off[k]), ex->c24[st], NVN_C24_BYTES);
         memcpy(B.c24[k], ex->c24[st], NVN_C24_BYTES);
@@ -463,7 +464,7 @@ static void bind_stats(const VkPipeInfo *info) {
     if (!bind_stats_on() || info->bind_point != VK_PIPELINE_BIND_POINT_GRAPHICS) return;
     for (uint32_t i = 0; i < info->n_bindings; i++) {
         const VkPipeBinding *b = &info->bindings[i];
-        int fs = info->n_sets > 1 ? b->set : !(b->stages & VK_SHADER_STAGE_VERTEX_BIT);
+        int fs = info->n_sets > 1 ? b->set : !(b->stages & (VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_GEOMETRY_BIT));
         BS.bind[fs]++, BS.desc[fs] += b->count ? b->count : 1;
     }
     if (++BS.draws % 4000 == 0) {

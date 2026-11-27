@@ -65,8 +65,9 @@ static VkPipeline lib_create(int kind, const VkPipeState *s, const GKey *k, VkPi
                                            .dynamicStateCount = P.n_dyn, .pDynamicStates = P.dyn};
     VkGraphicsPipelineCreateInfo pi = {.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO, .pNext = &ri,
                                        .flags = VK_PIPELINE_CREATE_LIBRARY_BIT_KHR, .pDynamicState = &dy};
-    VkShaderModule m = VK_NULL_HANDLE;
+    VkShaderModule m = VK_NULL_HANDLE, gm = VK_NULL_HANDLE;
     VkPipelineShaderStageCreateInfo st = {.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, .pName = "main"};
+    VkPipelineShaderStageCreateInfo pr_st[2];
     VkPipelineShaderStageRequiredSubgroupSizeCreateInfo rq;
     VkVertexInputAttributeDescription va[32];
     VkVertexInputBindingDescription vb[17];
@@ -111,13 +112,26 @@ static VkPipeline lib_create(int kind, const VkPipeState *s, const GKey *k, VkPi
         uint64_t vw, sw, n2 = 0;
         const uint32_t *vcode = gfx_shader_spirv(s->vs, &vw), *scode = vcode;
         sw = vw;
-        if (pk->missing && (patched = spirv_add_outputs(vcode, vw, pk->missing, pk->fin, &n2))) vcode = patched, vw = n2;
+        uint32_t vs_have = gfx_shader_outputs(s->vs, NULL);
+        if (pk->missing && (patched = spirv_add_outputs(vcode, vw, pk->missing, pk->fin, &n2)))
+            vcode = patched, vw = n2, vs_have |= pk->missing;
         else if (pk->missing) LOG_ONCE("vk_pipeline: cannot add missing vertex outputs (mask %#x)", pk->missing);
         if (!(m = make_module(vcode, vw))) goto out;
         st.stage = VK_SHADER_STAGE_VERTEX_BIT, st.module = m;
         pin_subgroup32(&st, &rq, scode, sw);
         pi.stageCount = 1, pi.pStages = &st, pi.pViewportState = &vp, pi.pRasterizationState = &rs;
         pi.layout = lay;
+        if (pk->gs) {   // the geometry stage with it (mtf-recomp): its bindings follow the vertex stage's in set 0
+            uint64_t gw = 0;
+            uint32_t *gcode = gs_code(pk->gs, s->vs, vs_have, pk->topo, gs_offset(s), &gw);
+            gm = gcode ? make_module(gcode, gw) : VK_NULL_HANDLE;
+            free(gcode);
+            if (!gm) goto out;
+            pr_st[0] = st;
+            pr_st[1] = (VkPipelineShaderStageCreateInfo){.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+                                                         .stage = VK_SHADER_STAGE_GEOMETRY_BIT, .module = gm, .pName = "main"};
+            pi.stageCount = 2, pi.pStages = pr_st;
+        }
     } else if (kind == LIB_FS) {
         pipe_test_stall(NULL, s->fs);
         if (s->fs) {
@@ -167,6 +181,7 @@ static VkPipeline lib_create(int kind, const VkPipeState *s, const GKey *k, VkPi
     if (vkCreateGraphicsPipelines(P.device, P.cache, 1, &pi, NULL, &pipe) != VK_SUCCESS) pipe = VK_NULL_HANDLE;
 out:
     if (m) vkDestroyShaderModule(P.device, m, NULL);
+    if (gm) vkDestroyShaderModule(P.device, gm, NULL);
     free(patched);
     return pipe;
 }
@@ -318,6 +333,7 @@ void lib_keys(const VkPipeState *s, const GKey *k, ViKey *v, PrKey *pk, FsKey *f
     memset(pk, 0, sizeof *pk);
     GfxShaderIo fin[32];
     pk->kind = LIB_PR, pk->vs = s->vs, pk->clamp = k->clamp, pk->poly_mode = k->poly_mode, pk->minus_w = k->minus_w;
+    pk->gs = s->gs, pk->topo = s->gs ? k->topo_class : 0;
     pk->missing = vs_union_missing(s, fin);
     for (int i = 0; i < 32; i++)
         if (pk->missing >> i & 1) pk->fin[i] = fin[i];

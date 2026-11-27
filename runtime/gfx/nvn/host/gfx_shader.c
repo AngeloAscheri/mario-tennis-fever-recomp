@@ -79,6 +79,7 @@ static int reflection_valid(const char *res, uint64_t size) {
     if (!st) return 0;
     st = strchr(st + 7, '"');
     return st && (!strncmp(st, "\"vs\"", 4) || !strncmp(st, "\"ps\"", 4) || !strncmp(st, "\"cs\"", 4) ||
+                  !strncmp(st, "\"gs\"", 4) ||   // a passthrough geometry program (mtf-recomp)
                   !strncmp(st, "\"task\"", 6) || !strncmp(st, "\"mesh\"", 6));   // task/mesh: gfx_shader_reflect() mesh_kind
 }
 
@@ -413,6 +414,8 @@ int gfx_shader_first_store(const GfxShader *s) { return s->first_store; }
 uint32_t gfx_shader_int_inputs(const GfxShader *s) { return s->int_inputs; }
 
 uint32_t gfx_shader_raw_outputs(const GfxShader *s) { return s->raw_outputs; }
+
+int gfx_shader_clip(const GfxShader *s) { return s ? s->clip : 0; }
 
 // A copy of s whose specialization constants default to val[k] for each word k with fix[k] (SCU<k> true, SCV<k> =
 // val[k]), the same as spirv-opt --set-spec-const-default-value: the pipeline code sees an ordinary shader, so the

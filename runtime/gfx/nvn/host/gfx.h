@@ -95,7 +95,8 @@ typedef struct {
     uint8_t separate;           // TEX: texture and sampler handles are separate
 } GfxShaderRes;
 typedef struct { uint8_t type, comps, packed; } GfxShaderIo;   // GFX_TYPE_*, components, 1 with a Component decoration
-int gfx_shader_stage(const GfxShader *s);                   // GFX_STAGE_VS, GFX_STAGE_FS or GFX_STAGE_CS
+int gfx_shader_stage(const GfxShader *s);                   // GFX_STAGE_VS, GFX_STAGE_GS (passthrough), GFX_STAGE_FS or GFX_STAGE_CS
+int gfx_shader_clip(const GfxShader *s);                    // clip distances a vertex shader writes (0-8)
 // A compute program whose first invocation alone resets what the others append to (sm86 glsl/first_store.py): 0 none;
 // 1 split only for dispatches of y = z = 1 groups, 2 for z = 1 (vk_pipeline_compute_first, vk_exec_ops.c)
 int gfx_shader_first_store(const GfxShader *s);

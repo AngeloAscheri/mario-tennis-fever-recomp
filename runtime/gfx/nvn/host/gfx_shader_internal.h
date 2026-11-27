@@ -30,6 +30,7 @@ struct GfxShader {
     int first_store;                                       // "first_store" (glsl/first_store.py): 0, 1 or 2
     uint32_t int_inputs;                                   // "int_inputs" (glsl/int_hints.py): Locations used as integers
     uint32_t raw_outputs;                                  // "raw_outputs": outputs that only move flat inputs' bits
+    uint8_t clip;                                          // "clip": clip distances a vertex shader writes, 0-8
     const struct GfxShader *variant_of;                    // gfx_shader_variant: the generic shader; NULL for one
     struct GfxShader *cs_variant;                          // task/mesh: the compute form (gfx_shader_cs_variant)
     int cs_of_mesh;                                        // this is the compute form of a task or mesh program
