@@ -34,7 +34,8 @@ The open work, in order. Each item becomes one or more issues; the issue says wh
 
 - [x] mkw-recomp's `sm86/` translator and `tools/shaders/` imported unchanged; the programs a run meets
       (`MKW_SPIRV_DUMP=build/shader-dump`) translate with `tools/shaders/translate.py --dumped build/shader-dump`:
-      27 of 27 valid SPIR-V. The first text is drawn.
+      27 of 27 valid SPIR-V. The first text is drawn. Through the tutorial's court: 438 of 438 (a shadow sampler with a
+      bias needed `GL_EXT_texture_shadow_lod`, as textureLod already did).
 - [ ] [#11](../../../issues/11) Every program of the game, not only the ones a run met: where Tennis keeps them (`42`, #2).
 - [ ] The controller button icons come out as "?": the stand-in fonts lack the Nintendo extension font's glyphs.
 
@@ -45,8 +46,14 @@ The open work, in order. Each item becomes one or more issues; the issue says wh
 - [x] The title screen's text samples its font (it read the movie's texture: two texture pools shared one slot table).
 - [ ] Only some characters of the title screen's text are drawn; the button icons are "?" (the stand-in fonts).
 - [ ] Some movie frames show blocks of an older picture (the VP9 decode or its frame order).
-- [ ] After the title screen (A): `CallCommands with a null handle` from `basic+0x11a6b38`, an entry of the engine's
-      cache of recorded commands that was never filled.
+- [x] After the title screen (A): `CallCommands with a null handle` from `basic+0x11a6b38`. The control memory's usage
+      saturated, so the engine took recordings as empty ([research.md](research.md#the-engines-cache-of-recorded-commands-26112026)).
+      The run now reaches the court of the first-run tutorial in 3D (60 s, no stop).
+- [x] The court's lighting drew a grid of dark triangles: indexed quads were drawn as a triangle list.
+- [ ] The court is covered by a blue haze: pass "fog" (program 4711, after the tiled lighting) adds an 8x8x64
+      `r11g11b10f` volume that dominates the lit scene. It was there before the quads were fixed. Find whether the
+      volume, the depth it is read with or the scene's lighting is off.
+- [ ] The tutorial's message boxes show no text (the same missing glyphs as the title screen).
 - [ ] Some runs skip the movie and show a black screen with a few glyphs instead: find what decides it.
 
 ## F5 — Playable
