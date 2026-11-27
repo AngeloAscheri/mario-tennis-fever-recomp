@@ -140,6 +140,22 @@ that operand must hold together with the guard: the EXIT ends only the lanes the
 the guard alone, so every lane under the threshold exited early with its output registers still 0. Six of the 440
 programs met so far carry such an EXIT; none of RET, CALL or BRX does. mkw-recomp's translator has the same gap.
 
+### The text's glyph cache (27/11/2026)
+
+The text is drawn from an 8192x2048 `r8` glyph cache (a block-linear texture in a GPU-only pool, NVN pool flags 0x21).
+nn::font rasterises each new glyph with nn::fontll on the CPU into a pitch-linear 8192x2048 `r8` staging texture of
+the same size (texture flags IMAGE and LINEAR, a CPU-cached pool), and a compute program loads from that staging image
+to fill the cache. The translator reflected every storage image as written by the shader (flag 4), as it once did
+every storage buffer: the replay took the staging texture as GPU-written and copied its image (still the first glyphs
+it was uploaded with, the `?` of the button icons) back over the CPU's new glyphs after each submission. The text was
+laid out (the button icons moved with each language's string widths) but every glyph drew blank. With flag 4 only on
+images a SUST, SURED or SUATOM writes, the staging texture is uploaded again each time the CPU writes it, and the
+tutorial's messages and the title screen's text draw. Three of the six images in the 440 programs met are load-only.
+mkw-recomp's translator marks every image the same way.
+
+nn::fontll answered every lookup the text made; the only misses were the Nintendo extension font's private-use codes
+(0xE0xx, the button icons), which the stand-in fonts lack.
+
 ### Open questions
 
 1. Where does the engine keep its shaders? `nvnProgramSetShaders` is imported; the `sysCustomShader*` names suggest a

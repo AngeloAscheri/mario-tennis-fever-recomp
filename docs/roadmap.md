@@ -44,7 +44,9 @@ The open work, in order. Each item becomes one or more issues; the issue says wh
 - [x] The intro movie plays (VP9 through main's `movie::` library and the SDK's `nn::movie` extractor, decoded with
       libvpx) and the title screen draws on Vulkan.
 - [x] The title screen's text samples its font (it read the movie's texture: two texture pools shared one slot table).
-- [ ] Only some characters of the title screen's text are drawn; the button icons are "?" (the stand-in fonts).
+- [x] Only some characters of the title screen's text are drawn: the glyph staging texture was taken as written by
+      the GPU ([research.md](research.md#the-texts-glyph-cache-27112026)). The button icons stay "?" (the stand-in
+      fonts).
 - [ ] Some movie frames show blocks of an older picture (the VP9 decode or its frame order).
 - [x] After the title screen (A): `CallCommands with a null handle` from `basic+0x11a6b38`. The control memory's usage
       saturated, so the engine took recordings as empty ([research.md](research.md#the-engines-cache-of-recorded-commands-26112026)).
@@ -60,7 +62,7 @@ The open work, in order. Each item becomes one or more issues; the issue says wh
 - [x] The grass is speckled with black: an EXIT's own predicate operand was dropped, so the lanes under the
       court's alpha threshold that were not killed exited with 0 as albedo and normal
       ([research.md](research.md#exits-predicate-operand-27112026)).
-- [ ] The tutorial's message boxes show no text (the same missing glyphs as the title screen).
+- [x] The tutorial's message boxes show no text: the same glyph cache ([research.md](research.md#the-texts-glyph-cache-27112026)).
 - [ ] Some runs skip the movie and show a black screen with a few glyphs instead: find what decides it.
 
 ## F5 — Playable
