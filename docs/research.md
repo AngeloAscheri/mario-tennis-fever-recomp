@@ -101,6 +101,16 @@ Of the `nn::*` imports from `sdk`, mkw-recomp's runtime already replaces 124 by 
 `nn::oe`, `nn::time`, `nn::account`). The rest run as lifted SDK code over the Horizon host, as in mkw-recomp. The
 biggest namespaces: `nn::audio` 151, `nn::os` 93, `nn::hid` 55, `nn::util` 45, `nn::async` 44, `nn::movie` 34.
 
+### The engine's cache of recorded commands (26/11/2026)
+
+The engine records draw commands once per material and replays them each frame (`basic+0x11a5fe0`): each material has
+a pair of 16-byte entries `{recorder, handle}`, the main pass and a variant. Its own `CallCommands` (`basic+0x1257338`)
+reads the handle at `entry+8` and falls back to `nvnCommandBufferCallCommands`. When a recording ends
+(`basic+0x1257224`), it adds how much `nvnCommandBufferGetCommandMemoryUsed` and `GetControlMemoryUsed` grew since its
+start; under 9 bytes it takes the recording as empty and stores a null handle. The variant's call path checks the
+recorder, not the handle. The recorders start with 256 bytes of control memory and their memory callback
+(`basic+0x231c0`) doubles it each time it runs out (256, 512, 1024, 2048).
+
 ### Open questions
 
 1. Where does the engine keep its shaders? `nvnProgramSetShaders` is imported; the `sysCustomShader*` names suggest a

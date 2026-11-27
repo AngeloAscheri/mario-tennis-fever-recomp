@@ -403,6 +403,12 @@ NVN_API(nvnCommandBufferEndRecording) {
     cmd_t *o = cmd_of(c);
     if (!o->recording || !o->seg) rt_fatal("nvn: EndRecording on command buffer %p, which does not record", (void *)o);
     if (!o->ctl_size) memory_event(c, o, NVN_COMMAND_BUFFER_MEMORY_EVENT_OUT_OF_CONTROL_MEMORY, MIN_CONTROL_SIZE);
+    // Control memory that cannot hold this recording asks the game for more, as the driver does (mtf-recomp). Without
+    // it the usage stays at the size: Mario Tennis Fever's engine (basic+0x1257224) takes a recording whose command
+    // and control usage grew by under 9 bytes as empty, stores a null handle and calls it later (basic+0x11a6b38). Its
+    // recorders start with 256 bytes and their callback (basic+0x231c0) doubles them.
+    else if (o->ctl_used + CTL_PER_RECORDING > o->ctl_size)
+        memory_event(c, o, NVN_COMMAND_BUFFER_MEMORY_EVENT_OUT_OF_CONTROL_MEMORY, CTL_PER_RECORDING);
     put_hdr(cmd_alloc(o, 8), OP_END, 8);
     o->hw_used -= 8;
     o->recording = 0;
