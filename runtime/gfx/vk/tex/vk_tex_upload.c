@@ -125,7 +125,8 @@ static int upload_texpre(Tex *e, uint32_t levels, uint32_t layers) {
 }
 
 // Copies the whole storage into the image (every level and layer the image has).
-// MKW_TRACE_ADDR=<hex> (diagnosis): the texture whose storage starts there: its GPU writes (vk_texture_gpu_written),
+// MKW_TRACE_ADDR=<hex> (diagnosis): the texture whose storage starts there: its GPU writes (vk_texture_gpu_written,
+// vk_texture_compute_written),
 // uploads and WriteTexels, the first 64 events.
 uint64_t trace_addr = 1;
 static volatile int32_t traced;

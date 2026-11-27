@@ -263,6 +263,8 @@ void vk_texture_compute_written(int id) {
     int hv = 0;
     const VkTexImage *pub = vk_texture_by_id_locked(id, &v, &hv);
     if (pub) gpu_written_locked((Tex *)pub);   // pub is Tex's first member
+    if (pub && tracing(pub->addr))   // as vk_texture_gpu_written's trace (mtf-recomp)
+        rt_log("vk: trace %#llx: written by a compute dispatch (slot %d)", (unsigned long long)pub->addr, id);
     unlock();
 }
 
