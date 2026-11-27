@@ -54,6 +54,8 @@ class TexOps:
         if self.images.get(key, f"{kind}{name}") != f"{kind}{name}":
             raise Unsupported(f"{i.op}: image {key} used both as float and for atomics")
         self.images[key] = f"{kind}{name}"
+        if i.op != "SULD":
+            self.images_written.add(key)
         return f"i{key[0]}_{key[1]}", vec, {"R": 1, "RG": 2, "RGBA": 4}.get(i.sym("rgba"), 0)
 
     def sust(self, i: Insn) -> str:

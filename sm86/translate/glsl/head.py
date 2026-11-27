@@ -136,8 +136,13 @@ def declarations(b, stage: str, shape: tuple[int, int, int, int] | None) -> list
     for (bank, idx), t in sorted(b.images.items()):
         fmt = "r32ui, " if t.startswith("uimage") else ""
         head.append(f"layout({fmt}binding = {nb}) uniform {t} i{bank}_{idx};")
+        # flags 4: the shader stores into it (mtf-recomp; was every image, as the buffers' flag 1 once was). The replay
+        # takes such an image as written by the GPU and copies it back to guest memory. Mario Tennis Fever's text writes
+        # each glyph on the CPU into a pitch-linear staging texture that a compute program only loads from to fill the
+        # glyph cache: marked written, its stale image was copied back over the new glyphs and the text drew none.
         refl["images"].append({"binding": nb, "type": sampler_type(t), "format": "R32Uint" if fmt else "Unknown", "cbuf_slot": bank,
-                               "handle": idx, "array": 1, "separate": False, "flags": 4})  # fmt: skip
+                               "handle": idx, "array": 1, "separate": False,
+                               "flags": 4 if (bank, idx) in b.images_written else 0})  # fmt: skip
         nb += 1
     for bank, idx in sorted(b.txq_tex):
         n = {"sampler1D": 1, "sampler2D": 2, "sampler3D": 3, "samplerCube": 2, "sampler2DArray": 3,

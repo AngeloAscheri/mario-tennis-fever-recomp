@@ -66,6 +66,7 @@ class Builder(AluOps, MemOps, TexOps, ThreadOps):
         self.gs_writes: set[str] = set()  # gs: the per-primitive outputs it sets (mem.gs_attr)
         self.zombie = False  # a compute program with BAR: a predicated EXIT keeps the lane going (exited): translate()
         self.images: dict[tuple[int, int], str] = {}
+        self.images_written: set[tuple[int, int]] = set()  # those a SUST, SURED or SUATOM writes (reflection flag 4)
         self.ssbos: set[int] = set()  # driver bank 0 offsets of the storage buffer addresses read
         self.ssbos_written: set[int] = set()  # those a STG, ATOMG or RED stores into (reflection flag 1)
         self.ur_ssbo: dict[int, int] = {}  # uniform register -> the c[0] offset its 64-bit value came from
