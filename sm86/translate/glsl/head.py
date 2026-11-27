@@ -86,6 +86,8 @@ def declarations(b, stage: str, shape: tuple[int, int, int, int] | None) -> list
         head.insert(2, "#extension GL_EXT_texture_shadow_lod : require")
     if getattr(b, "uses_demote", False):
         head.insert(2, "#extension GL_EXT_demote_to_helper_invocation : require")
+    if stage == "gs":
+        head += gs_head(b)
     head += [f"layout(location = {a}) {interp(b, stage, a)}in vec4 in_attr{a};" for a in sorted(b.in_attrs)]
     if stage == "ps":
         head += [f"layout(location = {t}) out vec4 out_color{t};" for t in sorted(b.out_attrs)]
@@ -100,6 +102,8 @@ def declarations(b, stage: str, shape: tuple[int, int, int, int] | None) -> list
     # Bindings from 1 (0 is the back end's support buffer), set 0, in this order: constant banks, storage buffers,
     # textures, images; the reflection names each the way runtime/gfx/nvn/host/gfx_shader.c add_res() reads it.
     refl: dict = {"stage": "task" if b.task else "mesh" if b.mesh else stage, "cbufs": [], "sbufs": [], "textures": [], "images": []}
+    if stage == "vs" and getattr(b, "clip", 0):
+        refl["clip"] = b.clip  # the clip distances it writes: a passthrough geometry stage after it passes them on
     nb = 1
     for n in sorted(b.cbufs):
         head.append(f"layout(std140, binding = {nb}) uniform CB{n} {{ uvec4 d[4096]; }} cb{n};")
@@ -148,6 +152,76 @@ def declarations(b, stage: str, shape: tuple[int, int, int, int] | None) -> list
     refl["spec"] = [[bank, byte] for (bank, byte), _ in sorted(b.spec.items(), key=lambda e: e[1])]
     b.reflection = refl
     return head
+
+
+# Passthrough geometry programs (mtf-recomp; core.translate takes only those): the program's body, sm_main(), sets the
+# per-primitive outputs, then main() passes each input vertex on unchanged with them and emits the primitive, as the
+# console does after OUT.FINAL. The module is written for triangles and every attribute Location; the runtime adapts
+# it to each pipeline (runtime/gfx/vk/pipe/vk_spirv_patch.c spirv_gs_adapt): the input topology (its execution modes,
+# the length of the per-vertex input arrays and GS_NV), the Locations the vertex stage does not write (removed, as
+# Vulkan requires every input to be written) and GS_CLIP, the clip distances the vertex stage writes ("clip" in its
+# reflection). Distances past GS_CLIP are 1.0: inside. The point size goes on too: with the device's
+# shaderTessellationAndGeometryPointSize, which the runtime requires for this stage, points need it. The ids are the runtime's GS_NV_SPEC_ID and GS_CLIP_SPEC_ID.
+# A viewport mask (NV_viewport_array2, which only NVIDIA's Vulkan drivers have) sends the primitive to every viewport
+# whose bit is set: GS_VIEWPORTS invocations, NVN's viewport count, each emitting it into its own viewport when its bit
+# is set (the way emulators take it to other GPUs).
+GS_NV_ID, GS_CLIP_ID, GS_ATTRS, GS_VIEWPORTS = 4000, 4001, 32, 16
+
+
+def gs_head(b) -> list[str]:
+    invocations = f", invocations = {GS_VIEWPORTS}" if "gs_viewport_mask" in b.gs_writes else ""
+    return [
+        f"layout(triangles{invocations}) in;",
+        "layout(triangle_strip, max_vertices = 3) out;",
+        f"layout(constant_id = {GS_NV_ID}) const int GS_NV = 3;",
+        f"layout(constant_id = {GS_CLIP_ID}) const int GS_CLIP = 0;",
+        "in gl_PerVertex { vec4 gl_Position; float gl_PointSize; float gl_ClipDistance[8]; } gl_in[];",
+        "out gl_PerVertex { vec4 gl_Position; float gl_PointSize; float gl_ClipDistance[8]; };",
+        *[f"layout(location = {a}) in vec4 in_attr{a}[];" for a in range(GS_ATTRS)],
+        *[f"layout(location = {a}) out vec4 out_attr{a};" for a in range(GS_ATTRS)],
+        "int gs_layer = 0, gs_viewport = 0, gs_viewport_mask = 0;",
+    ]
+
+
+def gs_viewport_relative(b) -> bool:
+    """SPH byte 0x4f bit 0, the reserved byte after the output map's fixed-function textures (eden-nx2
+    program_header.h names the byte OmapReserved; idea only): read here as NV_viewport_array2's viewport-relative
+    layer, layer = layer + viewport index. The one program met with it (Mario Tennis Fever's shadow caster) sends each
+    primitive to the cascades' viewports by a viewport mask, while the pass binds a 4-layer depth array with four
+    viewports, one cascade each, and writes no layer: on the console each cascade lands in its own layer."""
+    return bool(b.sph and len(b.sph.words) > 19 and b.sph.words[19] >> 24 & 1)
+
+
+def gs_main(b) -> str:
+    per_primitive, skip = [], []
+    relative = gs_viewport_relative(b)
+    viewport = None
+    if "gs_viewport_mask" in b.gs_writes:  # the mask decides the viewport; the index is ignored with it
+        skip.append("    if ((uint(gs_viewport_mask) >> uint(gl_InvocationID) & 1u) == 0u) return;")
+        viewport = "gl_InvocationID"
+    elif "gs_viewport" in b.gs_writes:
+        viewport = "gs_viewport"
+    if viewport:
+        per_primitive.append(f"        gl_ViewportIndex = {viewport};")
+    if relative and viewport:
+        per_primitive.append(f"        gl_Layer = gs_layer + {viewport};")
+    elif "gs_layer" in b.gs_writes:
+        per_primitive.append("        gl_Layer = gs_layer;")
+    return "\n".join([
+        "void main() {",
+        "    sm_main();",
+        *skip,
+        "    for (int v = 0; v < GS_NV; v++) {",
+        "        gl_Position = gl_in[v].gl_Position;",
+        "        gl_PointSize = gl_in[v].gl_PointSize;",   # the vertex stage always writes it (core.py)
+        "        for (int c = 0; c < 8; c++) gl_ClipDistance[c] = c < GS_CLIP ? gl_in[v].gl_ClipDistance[c] : 1.0;",
+        *[f"        out_attr{a} = in_attr{a}[v];" for a in range(GS_ATTRS)],
+        *per_primitive,
+        "        EmitVertex();",
+        "    }",
+        "    EndPrimitive();",
+        "}",
+    ])
 
 
 # Task programs: 32 invocations a workgroup (a warp: the programs use lane masks and ballots), the payload as a uint

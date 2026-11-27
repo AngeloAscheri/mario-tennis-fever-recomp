@@ -28,6 +28,7 @@ from glsl.head import (
     TASK_MAIN,
     TASK_MAIN_CS,
     declarations,
+    gs_main,
     mesh_head,
     mesh_head_cs,
     task_head,
@@ -62,6 +63,7 @@ class Builder(AluOps, MemOps, TexOps, ThreadOps):
         self.lmem_bytes = 0  # local memory (LDL/STL): the furthest constant extent, 0 = none
         self.task = False  # a task program (VS header, ISBEWR to its payload): set by translate()
         self.mesh = False  # a mesh program (ISBEWR.SKEW per-vertex writes): set by translate()
+        self.gs_writes: set[str] = set()  # gs: the per-primitive outputs it sets (mem.gs_attr)
         self.zombie = False  # a compute program with BAR: a predicated EXIT keeps the lane going (exited): translate()
         self.images: dict[tuple[int, int], str] = {}
         self.ssbos: set[int] = set()  # driver bank 0 offsets of the storage buffer addresses read
@@ -282,7 +284,26 @@ class Builder(AluOps, MemOps, TexOps, ThreadOps):
             return self.mesh_isbe(i)
         if op == "EXIT":
             return self.exit(i)
+        if self.stage == "gs" and op in ("LEPC", "BMOV", "OUT"):
+            return self.gs_epilogue(i)
         raise Unsupported(i.cls)
+
+    def gs_epilogue(self, i: Insn) -> str:
+        """A passthrough geometry program ends with NVIDIA's exit handler (mtf-recomp): LEPC and an add put the address
+        of `OUT.FINAL` in a register, BMOV moves it into a convergence barrier register, the first EXIT goes there,
+        OUT.FINAL finishes the primitive, BMOV clears the barrier register and the second EXIT ends the thread. Here
+        the first EXIT returns from sm_main() and GS_MAIN emits the primitive: LEPC only writes its register, BMOV into
+        a barrier register and OUT.FINAL do nothing. Any other form (BMOV into a register, an OUT that emits or cuts)
+        is not this epilogue."""
+        if i.op == "LEPC":
+            return self.dst(i, f"{i.pc & 0xFFFFFFFF:#x}u")
+        if i.op == "BMOV":
+            if i.has("Rd"):
+                raise Unsupported("BMOV into a register")
+            return ""
+        if i.sym("type") != "FINAL":
+            raise Unsupported(f"OUT.{i.sym('type')}")
+        return ""
 
 
 def inline_single_call(insns: list[Insn]) -> list[Insn]:
@@ -367,8 +388,13 @@ def translate(
 ) -> tuple[str, dict]:
     """shape: compute_shape() of a compute program; without it the workgroup is 1x1x1 (a census without controls).
     c1: the program's own constants (extract.py <sha1>.c1), where a BRX's jump table is."""
-    if stage not in ("ps", "vs", "cs", "tes?"):
+    if stage not in ("ps", "vs", "cs", "tes?", "gs"):
         raise Unsupported(f"stage {stage}")
+    if stage == "gs" and not (sph and sph.words[0] >> 24 & 1):
+        # SPH word 0 bit 24 (Ryujinx ShaderHeader.GpPassthrough, MIT): a passthrough program sets only per-primitive
+        # outputs (layer, viewport) and the vertices go on unchanged (mtf-recomp: Mario Tennis Fever's fog volume picks
+        # its slice so). A full geometry stage, which emits vertices of its own, is not translated.
+        raise Unsupported("gs: not a passthrough program")
     b = Builder(sph, stage)
     insns = inline_single_call(insns)
     writes = [i for i in insns if i.op == "ISBEWR"]
@@ -535,7 +561,9 @@ def translate(
     head = [*head, *gsearch]
     if head_cs is not None:
         head_cs = [*head_cs, *gsearch]
-    entry = "void sm_main() {" if b.task or b.mesh else "void main() {"
+    if stage == "gs":
+        tail_task = gs_main(b)
+    entry = "void sm_main() {" if b.task or b.mesh or stage == "gs" else "void main() {"
     if structured is not None:
         prog = [entry, *decl, *structured, "}"]
     else:

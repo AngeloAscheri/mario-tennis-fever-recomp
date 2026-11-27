@@ -38,7 +38,7 @@ from program import Decoder
 import shaderc_lib
 from shaderc_lib import Shaderc
 
-GLSLC_STAGE = {"ps": "frag", "vs": "vert", "cs": "comp", "task": "task", "mesh": "mesh"}
+GLSLC_STAGE = {"ps": "frag", "vs": "vert", "cs": "comp", "gs": "geom", "task": "task", "mesh": "mesh"}
 # glslc without optimization: -O was 86 % of glslc's time (366 -> 140 s over 11 561 programs on 12 threads) for SPIR-V
 # 2.5 times larger; the driver optimizes it again (prewarm +27 s on RADV) and the frame's GPU time stayed the same
 # (19.5 -> 19.2 ms replaying cap/race on a GTX 1050 Ti, 18/11/2026). Here, not in shaderc_lib, so the step's key

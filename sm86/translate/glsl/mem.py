@@ -455,6 +455,27 @@ class MemOps:
             return "intBitsToFloat(gl_VertexIndex)"
         raise Unsupported(f"{'AST' if out else 'ALD'} a[{addr:#x}]")
 
+    # Per-primitive outputs of a passthrough geometry program (mtf-recomp): a[0x64] the layer, a[0x68] the viewport
+    # index, a[0x3a0] the viewport mask of NV_viewport_array2 (Ryujinx AttributeConsts.cs, MIT), integers. AST's Rc
+    # (the output vertex) does not matter for them. Reading the input vertices (ALD with a vertex) is not translated
+    # yet: no program met needs it.
+    GS_OUTPUTS = {0x64: "gs_layer", 0x68: "gs_viewport", 0x3A0: "gs_viewport_mask"}
+
+    def gs_attr(self, i: Insn, base: int, n: int, out: bool) -> str:
+        if not out:
+            raise Unsupported("gs: ALD of an input vertex")
+        stmts = []
+        for k in range(n):
+            name = self.GS_OUTPUTS.get(base + 4 * k)
+            if name is None:
+                raise Unsupported(f"gs: AST a[{base + 4 * k:#x}]")
+            r = i.v("Rb") + k if i.v("Rb") != RZ else RZ
+            if r != RZ:
+                self.regs.add(r)
+            self.gs_writes.add(name)
+            stmts.append(f"{name} = int({reg(r)});")
+        return " ".join(stmts)
+
     def attr_mem(self, i: Insn) -> str:
         """ALD/AST with a constant address (Ra = RZ): consecutive words from Rd / Rb."""
         if i.v("Ra") != RZ or (i.op == "ALD" and i.sym("io") == "O"):
@@ -463,6 +484,8 @@ class MemOps:
         if n is None:
             raise Unsupported(f"{i.op}.{i.sym('sz')}")
         base, out = i.v("Ra_offset"), i.op == "AST"
+        if self.stage == "gs":
+            return self.gs_attr(i, base, n, out)
         stmts = []
         for k in range(n):
             target = self.attr_word(base + 4 * k, out)
