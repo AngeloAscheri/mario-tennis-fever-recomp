@@ -107,7 +107,31 @@ static void op_draw_idx(VkExec *ex, const p_draw_idx *d) {
     uint64_t bytes = (uint64_t)d->count * isize[d->itype];
     VkMemSpan sp;
     if (!vk_mem_resolve(d->ibuf, bytes, &sp)) return warn_once(W_INDEX, "index buffer %#llx is not backed: draws with it are skipped", (unsigned long long)d->ibuf);
-    if (d->itype == NVN_INDEX_TYPE_UNSIGNED_BYTE) {   // no uint8 index type here: widen (host-readable backing only)
+    uint32_t count = (uint32_t)d->count;
+    if (d->prim == NVN_DRAW_PRIMITIVE_QUADS && d->count >= 4) {
+        // Indexed quads become two triangles each, as op_draw does for direct ones (mtf-recomp): drawn as a triangle
+        // list, a quad lost its second triangle, and Mario Tennis Fever's court lighting, a grid of quads of byte
+        // indices, came out as dark triangles. Host-readable backing only, as the byte widening below.
+        if (sp.alloc) return warn_once(W_INDEX, "indexed quads in device-local memory: draw skipped");
+        vk_mem_count(sp.cls, VK_MUSE_CPU_READ, bytes);
+        uint32_t q = count / 4;
+        uint32_t *ix = malloc(sizeof *ix * 6 * q);
+        if (!ix) rt_fatal("vk: out of memory");
+        const uint8_t *src = (const uint8_t *)(uintptr_t)d->ibuf;
+        for (uint32_t i = 0; i < q; i++) {
+            static const uint32_t k[6] = {0, 1, 2, 0, 2, 3};
+            for (int j = 0; j < 6; j++) {
+                uint32_t at = 4 * i + k[j], v = 0;
+                memcpy(&v, src + (size_t)at * isize[d->itype], isize[d->itype]);   // little endian, as the guest
+                ix[6 * i + j] = v;
+            }
+        }
+        count = 6 * q;
+        vk_mem_count(VK_MCLS_SCRATCH, VK_MUSE_IB, sizeof *ix * count);
+        vk_exec_frame.cpu_idx[1]++, vk_exec_frame.cpu_idx_bytes += sizeof *ix * count;
+        bind_index(ex, ix, sizeof *ix * count, VK_INDEX_TYPE_UINT32);
+        free(ix);
+    } else if (d->itype == NVN_INDEX_TYPE_UNSIGNED_BYTE) {   // no uint8 index type here: widen (host-readable backing only)
         if (sp.alloc) return warn_once(W_INDEX, "byte indices in device-local memory: draw skipped");
         vk_mem_count(sp.cls, VK_MUSE_CPU_READ, bytes);
         vk_mem_count(VK_MCLS_SCRATCH, VK_MUSE_IB, 2 * bytes);
@@ -129,7 +153,7 @@ static void op_draw_idx(VkExec *ex, const p_draw_idx *d) {
         vk_mem_count(sp.cls, VK_MUSE_IB, bytes);
         VK_MEM_BOUND(sp);
     }
-    vkCmdDrawIndexed(ex->cb, (uint32_t)d->count, d->instances > 0 ? (uint32_t)d->instances : 1, 0, d->base_vertex,
+    vkCmdDrawIndexed(ex->cb, count, d->instances > 0 ? (uint32_t)d->instances : 1, 0, d->base_vertex,
                      (uint32_t)d->base_instance);
     ex->recorded++;
     if (vk_dump_armed) vk_dump_draw_after(ex);
