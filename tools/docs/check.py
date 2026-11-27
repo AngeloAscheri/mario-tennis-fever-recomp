@@ -22,7 +22,7 @@ CHECKED = ("recomp", "tools", "tests", "docs")
 
 def named(readme: str, name: str) -> bool:
     """Whether the README text names the file: the name not glued to a longer word or file name."""
-    return re.search(rf"(?<![\w.-]){re.escape(name)}(?![\w-])", readme) is not None
+    return re.search(rf"(?<![\w.-]){re.escape(name)}(?![\w-]|\.\w)", readme) is not None
 
 
 def tracked_files(root: Path) -> list[Path]:
