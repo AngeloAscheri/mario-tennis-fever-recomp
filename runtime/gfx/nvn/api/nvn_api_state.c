@@ -69,18 +69,17 @@ static void set_scissor(cmd_t *o, int x, int y, int w, int h) { *REC(o, OP_SCISS
 NVN_API(nvnCommandBufferSetScissor) {
     set_scissor(cmd_of(c), (int)arg_x(c, 1), (int)arg_x(c, 2), (int)arg_x(c, 3), (int)arg_x(c, 4));
 }
-// void nvnCommandBufferSetScissors(NVNcommandBuffer *cmd, int first, int n, const int *xywh): the replay keeps one
-// scissor (index 0); other indices matter only to shaders that select a viewport index, so differing ones are reported
+// void nvnCommandBufferSetScissors(NVNcommandBuffer *cmd, int first, int n, const int *xywh): every index, for the
+// geometry programs that pick a viewport (mtf-recomp: Mario Tennis Fever's shadow cascades, one viewport and scissor
+// each); index 0 is also the scissor of everything else
 NVN_API(nvnCommandBufferSetScissors) {
     int first = (int)arg_x(c, 1), n = (int)arg_x(c, 2);
     const int *r = arg_p(c, 3);
     if (first < 0 || n < 0 || first + n > 16) rt_fatal("nvn: SetScissors first %d n %d", first, n);
-    for (int i = 1; i < n; i++)
-        if (memcmp(r + 4 * i, r, 16)) {
-            static int once;
-            if (!once++) rt_log("nvn: SetScissors: differing scissor %d ignored (single-scissor replay)", first + i);
-        }
-    if (first == 0 && n > 0) set_scissor(cmd_of(c), r[0], r[1], r[2], r[3]);
+    if (!n) return;
+    p_scissors *o = REC(cmd_of(c), OP_SCISSORS, p_scissors);
+    o->first = first, o->n = n;
+    memcpy(o->r, r, (size_t)n * 16);
 }
 static void set_depth_range(cmd_t *o, float n, float f) { *REC(o, OP_DEPTH_RANGE, p_depth_range) = (p_depth_range){n, f}; }
 // void nvnCommandBufferSetDepthRange(NVNcommandBuffer *cmd, float near, float far)

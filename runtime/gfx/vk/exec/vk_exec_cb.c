@@ -249,20 +249,27 @@ void vk_exec_cb_shutdown(void) {
 
 void record_fixed(VkExec *ex) {
     VkCommandBuffer cb = ex->cb;
+    // mtf-recomp: as many viewports and scissors as the game set (vk_exec_viewport_count), the two counts equal
+    uint32_t nvp = vk_exec_viewport_count(ex);
     if (ex->dirty & VK_EXEC_DIRTY_VIEWPORT) {
-        float x = 0, y = 0, w = (float)ex->pass_w, h = (float)ex->pass_h;
-        if (ex->has_vp) x = ex->vp[0][0], y = ex->vp[0][1], w = ex->vp[0][2], h = ex->vp[0][3];
-        if (ex->has_vp) vk_tmp_scale_rect(ex, &x, &y, &w, &h);   // a pass moved to the output's size (vk_temporal.c)
-        if (w < 1) w = 1;
-        if (h < 1) h = 1;
-        VkViewport v = {x, y + h, w, -h, ex->depth_range[0], ex->depth_range[1]};   // the y flip: negative height
-        vk_tmp_viewport(ex, &v);   // the temporal upscalers' jitter on the scene's draws (vk_temporal.c)
-        vkCmdSetViewportWithCount(cb, 1, &v);
+        VkViewport v[16];
+        for (uint32_t i = 0; i < nvp; i++) {
+            int set = ex->has_vp && (!i || i < ex->n_vp);
+            float x = 0, y = 0, w = (float)ex->pass_w, h = (float)ex->pass_h;
+            if (set) x = ex->vp[i][0], y = ex->vp[i][1], w = ex->vp[i][2], h = ex->vp[i][3];
+            if (set) vk_tmp_scale_rect(ex, &x, &y, &w, &h);   // a pass moved to the output's size (vk_temporal.c)
+            if (w < 1) w = 1;
+            if (h < 1) h = 1;
+            v[i] = (VkViewport){x, y + h, w, -h, ex->depth_range[0], ex->depth_range[1]};   // the y flip: negative height
+            vk_tmp_viewport(ex, &v[i]);   // the temporal upscalers' jitter on the scene's draws (vk_temporal.c)
+        }
+        vkCmdSetViewportWithCount(cb, nvp, v);
         ex->recorded++;
     }
     if (ex->dirty & VK_EXEC_DIRTY_SCISSOR) {
-        VkRect2D r = vk_exec_scissor(ex);
-        vkCmdSetScissorWithCount(cb, 1, &r);
+        VkRect2D r[16];
+        for (uint32_t i = 0; i < nvp; i++) r[i] = vk_exec_scissor_i(ex, i);
+        vkCmdSetScissorWithCount(cb, nvp, r);
         ex->recorded++;
     }
     if (ex->dirty & VK_EXEC_DIRTY_DEPTH_BIAS) {

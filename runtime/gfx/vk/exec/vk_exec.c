@@ -327,11 +327,11 @@ VkBuffer vk_exec_inline_buffer(VkDeviceSize size) {
     return t->b;
 }
 
-VkRect2D vk_exec_scissor(const VkExec *ex) {
+static VkRect2D scissor_rect(const VkExec *ex, const p_scissor *sc) {
     int64_t w = ex->pass_w, h = ex->pass_h;
-    if (!ex->has_scissor) return (VkRect2D){{0, 0}, {(uint32_t)w, (uint32_t)h}};
-    int64_t x0 = ex->scissor.x, y0 = ex->scissor.y;
-    int64_t x1 = x0 + ex->scissor.w, y1 = y0 + ex->scissor.h;
+    if (!sc) return (VkRect2D){{0, 0}, {(uint32_t)w, (uint32_t)h}};
+    int64_t x0 = sc->x, y0 = sc->y;
+    int64_t x1 = x0 + sc->w, y1 = y0 + sc->h;
     {   // a pass moved to the output's size (vk_temporal.c): the game's scissor scaled with it
         float fx = (float)x0, fy = (float)y0, fw = (float)(x1 - x0), fh = (float)(y1 - y0);
         vk_tmp_scale_rect(ex, &fx, &fy, &fw, &fh);
@@ -343,6 +343,25 @@ VkRect2D vk_exec_scissor(const VkExec *ex) {
     if (y1 > h) y1 = h;
     if (x1 <= x0 || y1 <= y0) return (VkRect2D){{0, 0}, {0, 0}};
     return (VkRect2D){{(int32_t)x0, (int32_t)y0}, {(uint32_t)(x1 - x0), (uint32_t)(y1 - y0)}};
+}
+
+VkRect2D vk_exec_scissor(const VkExec *ex) { return scissor_rect(ex, ex->has_scissor ? &ex->scissor : NULL); }
+
+// Scissor i (mtf-recomp): the game's, or the render area for an index it never set.
+VkRect2D vk_exec_scissor_i(const VkExec *ex, uint32_t i) {
+    if (!i) return vk_exec_scissor(ex);
+    return scissor_rect(ex, i < 16 && (ex->sc_set >> i & 1) ? &ex->scissors[i] : NULL);
+}
+
+// Viewports and scissors a draw gets (mtf-recomp): every index the game set, for geometry programs that pick one
+// (Mario Tennis Fever's shadow cascades: four viewports, one per layer); 1 when it set one, as before.
+uint32_t vk_exec_viewport_count(const VkExec *ex) {
+    uint32_t n = ex->n_vp, sc = ex->sc_set ? 32u - (uint32_t)__builtin_clz(ex->sc_set) : 0, max = 16;
+    VkCtx *c = vk_ctx();
+    if (c && c->props.limits.maxViewports < max) max = c->props.limits.maxViewports;
+    if (sc > n) n = sc;
+    if (n > max) n = max;
+    return n ? n : 1;
 }
 
 // ---- the op loop
@@ -458,13 +477,24 @@ int vk_exec_state_op(VkExec *ex, uint32_t op, const void *a) {
             if (v->first + i >= 0) memcpy(ex->vp[v->first + i], v->v[i], sizeof ex->vp[0]);
         ex->has_vp = 1;
         ex->dirty |= VK_EXEC_DIRTY_VIEWPORT;
+        if (v->first >= 0 && v->first + v->n <= 16 && (uint32_t)(v->first + v->n) > ex->n_vp)
+            ex->n_vp = (uint32_t)(v->first + v->n), ex->dirty |= VK_EXEC_DIRTY_SCISSOR;   // the counts go together
         break;
     }
     case OP_SCISSOR:
-        ex->scissor = *(const p_scissor *)a;
-        ex->has_scissor = 1;
+        ex->scissor = ex->scissors[0] = *(const p_scissor *)a;
+        ex->has_scissor = 1, ex->sc_set |= 1;
         ex->dirty |= VK_EXEC_DIRTY_SCISSOR;
         break;
+    case OP_SCISSORS: {   // mtf-recomp
+        const p_scissors *r = a;
+        uint32_t before = ex->sc_set;
+        for (int i = 0; i < r->n && r->first + i < 16; i++)
+            if (r->first + i >= 0) ex->scissors[r->first + i] = r->r[i], ex->sc_set |= 1u << (r->first + i);
+        if (r->first == 0) ex->scissor = r->r[0], ex->has_scissor = 1;
+        ex->dirty |= VK_EXEC_DIRTY_SCISSOR | (ex->sc_set != before ? VK_EXEC_DIRTY_VIEWPORT : 0);
+        break;
+    }
     case OP_DEPTH_RANGE: {
         const p_depth_range *r = a;
         ex->depth_range[0] = r->n, ex->depth_range[1] = r->f;
