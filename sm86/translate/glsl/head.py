@@ -2,7 +2,7 @@
 resource bindings and their reflection) and the task/mesh wrappers around the translated body."""
 
 from glsl.common import (HMMA_FN, LDSM_FN, LOP3_FN, MOVM_FN, NMINMAX_FN, PRMT_FN, SHFL_FN, SMEM_PORTABLE_WORDS,
-                         SMEM_WRAP_SENTINEL, WARP_FN)  # fmt: skip
+                         SMEM_WRAP_SENTINEL, WARP_FN, Unsupported)  # fmt: skip
 from glsl.thread import ThreadOps
 
 
@@ -86,10 +86,15 @@ def declarations(b, stage: str, shape: tuple[int, int, int, int] | None) -> list
         head.insert(2, "#extension GL_EXT_texture_shadow_lod : require")
     if getattr(b, "uses_demote", False):
         head.insert(2, "#extension GL_EXT_demote_to_helper_invocation : require")
-    if stage == "gs":
+    if getattr(b, "vtg", False):
+        head += vtg_head(b)
+    elif stage == "gs":
         head += gs_head(b)
-    head += [f"layout(location = {a}) {interp(b, stage, a)}in vec4 in_attr{a};" for a in sorted(b.in_attrs)]
-    if stage == "ps":
+    if not getattr(b, "vtg", False):
+        head += [f"layout(location = {a}) {interp(b, stage, a)}in vec4 in_attr{a};" for a in sorted(b.in_attrs)]
+    if getattr(b, "vtg", False):
+        pass   # vtg_head declared the outputs
+    elif stage == "ps":
         head += [f"layout(location = {t}) out vec4 out_color{t};" for t in sorted(b.out_attrs)]
     else:
         head += [f"layout(location = {t}) out vec4 out_attr{t};" for t in sorted(b.out_attrs)]
@@ -186,6 +191,66 @@ def gs_head(b) -> list[str]:
         *[f"layout(location = {a}) out vec4 out_attr{a};" for a in range(GS_ATTRS)],
         "int gs_layer = 0, gs_viewport = 0, gs_viewport_mask = 0;",
     ]
+
+
+# Tessellation and full geometry programs (mtf-recomp; mem.vtg_attr). The input gl_PerVertex block has the members of
+# the passthrough geometry stage's (gs_head): Position, PointSize, ClipDistance[8] last, which the runtime fits to the
+# stage before (vk_spirv_patch.c); the output block has Position and PointSize only, so a last stage before the
+# rasterizer writes no clip distances it never set. Per-vertex user attributes at their Location, per-patch ones from
+# Location 31 down (mem.patch_location).
+# SET_TESSELLATION_PARAMETERS (NVIDIA clb197.h, MIT): domain 1:0 isoline/triangle/quad, spacing 5:4 integer/fractional
+# odd/fractional even, output primitives 9:8 points/lines/triangles CW/triangles CCW. The TES's control section holds
+# that word at +0x5c (0x202 for the quads of Mario Tennis Fever's court). Vulkan's cw with its default upper-left
+# domain origin is the hardware's TRIANGLES_CW (Mesa NVK nvk_cmd_draw.c, MIT).
+TESS_DOMAIN = {0: "isolines", 1: "triangles", 2: "quads"}
+TESS_SPACING = {0: "equal_spacing", 1: "fractional_odd_spacing", 2: "fractional_even_spacing"}
+GS_OUT_TOPOLOGY = {1: "points", 6: "line_strip", 7: "triangle_strip"}  # SPH word 3 bits 24-27 (Ryujinx, MIT)
+
+
+def tes_layout(mode: int) -> str:
+    domain, spacing, prims = TESS_DOMAIN.get(mode & 3), TESS_SPACING.get(mode >> 4 & 3), mode >> 8 & 3
+    if domain is None or spacing is None:
+        raise Unsupported(f"tes: tessellation parameters {mode:#x}")
+    parts = [domain, spacing]
+    if prims == 0:
+        parts.append("point_mode")
+    elif domain != "isolines" and prims in (2, 3):
+        parts.append("cw" if prims == 2 else "ccw")
+    return f"layout({', '.join(parts)}) in;"
+
+
+def vtg_head(b) -> list[str]:
+    stage, head = b.stage, []
+    clash = sorted(set(b.in_attrs if stage == "tes" else b.out_attrs) & {31 - p for p in b.patch_attrs})
+    if clash:
+        raise Unsupported(f"{stage}: per-patch Locations {clash} taken by per-vertex attributes")
+    if stage == "tcs":
+        verts = b.sph.words[2] >> 24 if b.sph else 0
+        if not 1 <= verts <= 32:
+            raise Unsupported(f"tcs: {verts} output vertices")
+        head.append(f"layout(vertices = {verts}) out;")
+    elif stage == "tes":
+        head.append(tes_layout(b.tess_mode))
+    else:
+        topo = GS_OUT_TOPOLOGY.get(b.sph.words[3] >> 24 & 0xF if b.sph else 0)
+        verts = b.sph.words[4] & 0xFFF if b.sph else 0
+        if topo is None or not 1 <= verts <= 1024:
+            raise Unsupported(f"gs: output topology {b.sph.words[3] >> 24 & 0xF if b.sph else 0}, {verts} vertices")
+        invocations = (b.sph.words[2] >> 24) if b.sph else 1
+        inv = f", invocations = {invocations}" if invocations > 1 else ""
+        head += [f"layout(triangles{inv}) in;", f"layout({topo}, max_vertices = {verts}) out;",
+                 f"layout(constant_id = {GS_NV_ID}) const int GS_NV = 3;"]  # fmt: skip
+    head.append("in gl_PerVertex { vec4 gl_Position; float gl_PointSize; float gl_ClipDistance[8]; } gl_in[];")
+    head.append(f"out gl_PerVertex {{ vec4 gl_Position; float gl_PointSize; }}{' gl_out[]' if stage == 'tcs' else ''};")
+    head += [f"layout(location = {a}) in vec4 in_attr{a}[];" for a in sorted(b.in_attrs)]
+    arr = "[]" if stage == "tcs" else ""
+    head += [f"layout(location = {a}) out vec4 out_attr{a}{arr};" for a in sorted(b.out_attrs)]
+    if b.patch_attrs:
+        if stage not in ("tcs", "tes"):
+            raise Unsupported(f"{stage}: per-patch attributes")
+        q = "patch out" if stage == "tcs" else "patch in"
+        head += [f"layout(location = {31 - p}) {q} vec4 patch_attr{p};" for p in sorted(b.patch_attrs)]
+    return head
 
 
 def gs_viewport_relative(b) -> bool:

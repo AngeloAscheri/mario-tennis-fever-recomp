@@ -66,6 +66,11 @@ class Builder(AluOps, MemOps, TexOps, ThreadOps):
         self.gs_writes: set[str] = set()  # gs: the per-primitive outputs it sets (mem.gs_attr)
         self.zombie = False  # a compute program with BAR: a predicated EXIT keeps the lane going (exited): translate()
         self.images: dict[tuple[int, int], str] = {}
+        # mtf-recomp: tessellation and full geometry programs (mem.vtg_attr): per-vertex inputs, per-patch vec4s used
+        self.vtg = False  # tcs, tes, or a geometry program that emits its own vertices (gs_full)
+        self.gs_full = False
+        self.patch_attrs: set[int] = set()
+        self.tess_mode = 0  # tes: the TessMode word of the control section (head.tes_layout)
         self.images_written: set[tuple[int, int]] = set()  # those a SUST, SURED or SUATOM writes (reflection flag 4)
         self.ssbos: set[int] = set()  # driver bank 0 offsets of the storage buffer addresses read
         self.ssbos_written: set[int] = set()  # those a STG, ATOMG or RED stores into (reflection flag 1)
@@ -283,6 +288,19 @@ class Builder(AluOps, MemOps, TexOps, ThreadOps):
             return self.task_isbe(i)
         if op in ("ISBEWR", "ISBERD") and self.mesh:
             return self.mesh_isbe(i)
+        if op == "ISBERD" and self.vtg:
+            # An input vertex's ISBE offset, (primitive * vertices) + vertex: Ryujinx InstEmitAttribute.Isberd (MIT)
+            # passes Ra on, the vertex, with the primitive taken as 0 (SR_INVOCATION_INFO's low byte is 0 here too).
+            if i.sym("io") != "I" or i.sym("base") != "MAP" or i.sym("skew") not in ("", "noskew") or i.v("Ra_offset"):
+                raise Unsupported(f"ISBERD {i.sym('io')}.{i.sym('base')} +{i.v('Ra_offset'):#x}")
+            return self.dst(i, self.src_u(i, "a"))
+        if op == "OUT" and self.gs_full:
+            t = i.sym("type")   # EMIT, CUT, EMIT_THEN_CUT; FINAL ends the program (gs_epilogue's handler)
+            if t == "FINAL":
+                return ""
+            if t not in ("EMIT", "CUT", "EMIT_THEN_CUT"):
+                raise Unsupported(f"OUT.{t}")
+            return " ".join((["EmitVertex();"] if "EMIT" in t else []) + (["EndPrimitive();"] if "CUT" in t else []))
         if op == "EXIT":
             # EXIT's own predicate operand, as BRA's: `@!P0 EXIT P1` ends only the lanes where both hold. Mario Tennis
             # Fever's court (mtf-recomp) kills the texels under its alpha threshold with `@P1 KILL` and exits those
@@ -390,18 +408,27 @@ ZOMBIE_SKIPS = frozenset({"STG", "STS", "ATOMG", "ATOMS", "ATOM", "RED", "SUST",
 
 
 def translate(
-    sph: Sph | None, insns: list[Insn], stage: str, shape: tuple[int, int, int, int] | None = None, c1: bytes = b""
+    sph: Sph | None,
+    insns: list[Insn],
+    stage: str,
+    shape: tuple[int, int, int, int] | None = None,
+    c1: bytes = b"",
+    tess_mode: int = 0,
 ) -> tuple[str, dict]:
     """shape: compute_shape() of a compute program; without it the workgroup is 1x1x1 (a census without controls).
-    c1: the program's own constants (extract.py <sha1>.c1), where a BRX's jump table is."""
-    if stage not in ("ps", "vs", "cs", "tes?", "gs"):
+    c1: the program's own constants (extract.py <sha1>.c1), where a BRX's jump table is.
+    tess_mode: a TES's TessMode word, control section +0x5c (tools/shaders/translate.py; head.tes_layout)."""
+    if stage not in ("ps", "vs", "cs", "tes?", "gs", "tcs", "tes"):
         raise Unsupported(f"stage {stage}")
-    if stage == "gs" and not (sph and sph.words[0] >> 24 & 1):
-        # SPH word 0 bit 24 (Ryujinx ShaderHeader.GpPassthrough, MIT): a passthrough program sets only per-primitive
-        # outputs (layer, viewport) and the vertices go on unchanged (mtf-recomp: Mario Tennis Fever's fog volume picks
-        # its slice so). A full geometry stage, which emits vertices of its own, is not translated.
-        raise Unsupported("gs: not a passthrough program")
     b = Builder(sph, stage)
+    # SPH word 0 bit 24 (Ryujinx ShaderHeader.GpPassthrough, MIT): a passthrough program sets only per-primitive
+    # outputs (layer, viewport) and the vertices go on unchanged (mtf-recomp: Mario Tennis Fever's fog volume picks
+    # its slice so); any other geometry program emits vertices of its own (OUT.EMIT), as tessellation programs read
+    # their input vertices: mem.vtg_attr.
+    b.gs_full = stage == "gs" and not (sph and sph.words[0] >> 24 & 1)
+    b.vtg = stage in ("tcs", "tes") or b.gs_full
+    if stage == "tes":
+        b.tess_mode = tess_mode
     insns = inline_single_call(insns)
     writes = [i for i in insns if i.op == "ISBEWR"]
     # a VS header with payload writes only (no per-vertex SKEW writes, no index bytes) is a task program
@@ -567,9 +594,9 @@ def translate(
     head = [*head, *gsearch]
     if head_cs is not None:
         head_cs = [*head_cs, *gsearch]
-    if stage == "gs":
+    if stage == "gs" and not b.gs_full:
         tail_task = gs_main(b)
-    entry = "void sm_main() {" if b.task or b.mesh or stage == "gs" else "void main() {"
+    entry = "void sm_main() {" if b.task or b.mesh or (stage == "gs" and not b.gs_full) else "void main() {"
     if structured is not None:
         prog = [entry, *decl, *structured, "}"]
     else:

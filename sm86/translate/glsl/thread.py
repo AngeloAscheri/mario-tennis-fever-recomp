@@ -57,6 +57,16 @@ class ThreadOps:
 
     def s2r(self, i: Insn) -> str:
         names = i.f["SRa"].symbols or []
+        if i.op == "S2R" and getattr(self, "vtg", False) and ("SR_INVOCATION_ID" in names or "SR_INVOCATION_INFO" in names):
+            # mtf-recomp, Ryujinx InstEmitMove.S2R (MIT): the invocation (a TCS's output vertex, a geometry program's
+            # instance); the info word has the vertices of a patch (TCS, TES) or of an input primitive (GS) at bit 16,
+            # its low byte a primitive index only ISBE offsets use, 0 here as ISBERD takes it
+            if "SR_INVOCATION_ID" in names:
+                if self.stage not in ("tcs", "gs"):
+                    raise Unsupported(f"S2R SR_INVOCATION_ID in {self.stage}")
+                return self.dst(i, "uint(gl_InvocationID)")
+            verts = "gl_PatchVerticesIn" if self.stage in ("tcs", "tes") else "GS_NV"
+            return self.dst(i, f"(uint({verts}) << 16u)")
         sr = next((n for n in names if n in self.SR), None)
         if sr is None:
             raise Unsupported(f"{i.op} {'/'.join(names)}")

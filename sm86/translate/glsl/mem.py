@@ -476,14 +476,116 @@ class MemOps:
             stmts.append(f"{name} = int({reg(r)});")
         return " ".join(stmts)
 
+    # ---- tessellation and full geometry programs (mtf-recomp; Ryujinx AttributeMap.cs, InstEmitAttribute.cs, MIT)
+    # Their inputs are per vertex: ALD's Rb holds the vertex (ISBERD's result, the vertex's index here as in Ryujinx)
+    # and reads gl_in[v] or in_attr<L>[v]. A TCS writes its own vertex, gl_out[gl_InvocationID], and reads back outputs
+    # with ALD.O. Per-patch words (the P form): 0x00-0x0c the outer tessellation levels, 0x10-0x14 the inner ones, from
+    # 0x18 the user's per-patch vec4s, which take Locations from 31 down (patch_location) since Vulkan does not let
+    # them share a Location with a per-vertex variable of the interface; TCS and TES agree on that without each other.
+    # a[0x2f0], a[0x2f4]: gl_TessCoord, whatever ALD's io says (Ryujinx CanLoadOutput).
+
+    @staticmethod
+    def patch_location(p: int) -> int:
+        return 31 - p
+
+    def vtg_vertex(self, i: Insn) -> str:
+        """The input vertex ALD names: Rb as an index (RZ: vertex 0), clamped to the input arrays."""
+        r = i.v("Rb")
+        if r == RZ:
+            return "0"
+        self.regs.add(r)
+        last = "uint(GS_NV - 1)" if self.stage == "gs" else "31u"
+        return f"int(min({reg(r)}, {last}))"
+
+    def vtg_word(self, i: Insn, addr: int, out: bool, read_out: bool) -> tuple[str, str]:
+        """(the GLSL lvalue or value of attribute word addr, its type "f" float / "i" int); ("", "") to drop a store."""
+        stage, patch = self.stage, i.cls.startswith(("ald__PATCH", "ast__PATCH"))
+        if patch:
+            if stage not in ("tcs", "tes") or (stage == "tes" and (out or read_out)):
+                raise Unsupported(f"{i.op}.P in {stage}")
+            if addr < 0x10:
+                return f"gl_TessLevelOuter[{addr >> 2}]", "f"
+            if addr < 0x18:
+                return f"gl_TessLevelInner[{(addr - 0x10) >> 2}]", "f"
+            if addr >= 0x200:
+                raise Unsupported(f"{i.op}.P a[{addr:#x}]")
+            pa, c = (addr - 0x18) // 16, ((addr - 0x18) >> 2) & 3
+            self.patch_attrs.add(pa)
+            return f"patch_attr{pa}[{c}]", "f"
+        if not out and addr in (0x2F0, 0x2F4):
+            if stage != "tes":
+                raise Unsupported(f"ALD a[{addr:#x}] in {stage}")
+            return f"gl_TessCoord[{(addr - 0x2F0) >> 2}]", "f"
+        if not out and addr == 0x60:
+            return "gl_PrimitiveID", "i"
+        if out:   # AST: this invocation's vertex
+            vert = "gl_out[gl_InvocationID]." if stage == "tcs" else ""
+            if 0x70 <= addr < 0x80:
+                return f"{vert}gl_Position[{(addr - 0x70) >> 2}]", "f"
+            if 0x80 <= addr < 0x280:
+                g, c = (addr - 0x80) // 16, ((addr - 0x80) >> 2) & 3
+                self.out_attrs.add(g)
+                return (f"out_attr{g}[gl_InvocationID][{c}]" if stage == "tcs" else f"out_attr{g}[{c}]"), "f"
+            if addr == 0x6C:
+                return f"{vert}gl_PointSize", "f"
+            if addr == 0x5C:
+                return "", ""   # dropped as in attr_word (a per-primitive shading rate)
+            if stage == "gs" and addr in (0x64, 0x68):
+                return ("gl_Layer" if addr == 0x64 else "gl_ViewportIndex"), "i"
+            raise Unsupported(f"AST a[{addr:#x}] in {stage}")
+        v = self.vtg_vertex(i)
+        if read_out:   # ALD.O in a TCS: an output vertex
+            if stage != "tcs":
+                raise Unsupported(f"ALD.O a[{addr:#x}] in {stage}")
+            if 0x70 <= addr < 0x80:
+                return f"gl_out[{v}].gl_Position[{(addr - 0x70) >> 2}]", "f"
+            if 0x80 <= addr < 0x280:
+                g, c = (addr - 0x80) // 16, ((addr - 0x80) >> 2) & 3
+                self.out_attrs.add(g)
+                return f"out_attr{g}[{v}][{c}]", "f"
+            raise Unsupported(f"ALD.O a[{addr:#x}] in {stage}")
+        if 0x70 <= addr < 0x80:
+            return f"gl_in[{v}].gl_Position[{(addr - 0x70) >> 2}]", "f"
+        if 0x80 <= addr < 0x280:
+            g, c = (addr - 0x80) // 16, ((addr - 0x80) >> 2) & 3
+            self.in_attrs.add(g)
+            return f"in_attr{g}[{v}][{c}]", "f"
+        if addr == 0x6C:
+            return f"gl_in[{v}].gl_PointSize", "f"
+        raise Unsupported(f"ALD a[{addr:#x}] in {stage}")
+
+    def vtg_attr(self, i: Insn, base: int, n: int) -> str:
+        out = i.op == "AST"
+        read_out = not out and i.sym("io") == "O" and base not in (0x2F0, 0x2F4)
+        stmts, loads = [], []
+        for k in range(n):
+            target, kind = self.vtg_word(i, base + 4 * k, out, read_out)
+            if not target:
+                continue
+            if out:
+                r = i.v("Rb") + k if i.v("Rb") != RZ else RZ
+                if r != RZ:
+                    self.regs.add(r)
+                val = f"int({reg(r)})" if kind == "i" else f"uintBitsToFloat({reg(r)})"
+                stmts.append(f"{target} = {val};")
+            elif i.v("Rd") != RZ:
+                d = i.v("Rd") + k
+                self.regs.add(d)
+                loads.append((d, f"uint({target})" if kind == "i" else f"floatBitsToUint({target})"))
+        # every word read before any is written: the vertex index may sit in a destination (ALD.128 R4, a[0x70], R4)
+        return multi_load(loads) if loads else " ".join(stmts)
+
     def attr_mem(self, i: Insn) -> str:
         """ALD/AST with a constant address (Ra = RZ): consecutive words from Rd / Rb."""
-        if i.v("Ra") != RZ or (i.op == "ALD" and i.sym("io") == "O"):
+        vtg = getattr(self, "vtg", False)
+        if i.v("Ra") != RZ or (i.op == "ALD" and i.sym("io") == "O" and not vtg):
             raise Unsupported(f"{i.op} indexed or of outputs")
         n = {"32": 1, "64": 2, "96": 3, "128": 4}.get(i.sym("sz"))
         if n is None:
             raise Unsupported(f"{i.op}.{i.sym('sz')}")
         base, out = i.v("Ra_offset"), i.op == "AST"
+        if vtg:
+            return self.vtg_attr(i, base, n)
         if self.stage == "gs":
             return self.gs_attr(i, base, n, out)
         stmts = []

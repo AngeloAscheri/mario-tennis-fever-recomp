@@ -21,6 +21,7 @@ import hashlib
 import json
 import os
 import shutil
+import struct
 import subprocess
 import sys
 from collections import Counter
@@ -38,7 +39,8 @@ from program import Decoder
 import shaderc_lib
 from shaderc_lib import Shaderc
 
-GLSLC_STAGE = {"ps": "frag", "vs": "vert", "cs": "comp", "gs": "geom", "task": "task", "mesh": "mesh"}
+GLSLC_STAGE = {"ps": "frag", "vs": "vert", "cs": "comp", "gs": "geom", "task": "task", "mesh": "mesh", "tcs": "tesc",
+               "tes": "tese"}  # fmt: skip
 # glslc without optimization: -O was 86 % of glslc's time (366 -> 140 s over 11 561 programs on 12 threads) for SPIR-V
 # 2.5 times larger; the driver optimizes it again (prewarm +27 s on RADV) and the frame's GPU time stayed the same
 # (19.5 -> 19.2 ms replaying cap/race on a GTX 1050 Ti, 18/11/2026). Here, not in shaderc_lib, so the step's key
@@ -131,7 +133,9 @@ def translate_one(
     """(verdict, sha256 of the GLSL or "" when there is none)."""
     sph, insns = _dec.program(code, stage)
     try:
-        src, refl = glsl.translate(sph, insns, stage, glsl.compute_shape(ctl) if stage == "cs" else None, c1)
+        # a TES's tessellation parameters (SET_TESSELLATION_PARAMETERS) at control +0x5c (mtf-recomp, glsl head.py)
+        tess = struct.unpack_from("<I", ctl, 0x5C)[0] if stage == "tes" and len(ctl) >= 0x60 else 0
+        src, refl = glsl.translate(sph, insns, stage, glsl.compute_shape(ctl) if stage == "cs" else None, c1, tess)
     except glsl.Unsupported as e:
         return f"unsupported: {e}", ""
     except (KeyError, ValueError, IndexError) as e:  # a translator bug in one program must not stop the census
@@ -258,6 +262,11 @@ def main() -> None:
     )
     for code in sorted(args.dumped.glob("*.code")) if args.dumped else ():
         stage = sph_stage(code.read_bytes()) or "cs"
+        ctl = code.with_suffix(".ctl")
+        if stage in ("tcs", "tes?") and ctl.exists() and len(ctl.read_bytes()) > 0x56:
+            # mtf-recomp: NVNshaderStage at control +0x56 (runtime nvn2.c nvn2_program_stage) tells a TES (4) from a
+            # mesh program with the same type-3 header, and confirms a TCS (3)
+            stage = {3: "tcs", 4: "tes"}.get(ctl.read_bytes()[0x56], stage)
         if not args.stage or stage == args.stage:
             jobs.append((code.stem, stage, str(args.dumped), str(args.out), args.full, th))
     # main compiles this one itself: it needs --glslc and --no-validate too, or the player's setup, which has neither
