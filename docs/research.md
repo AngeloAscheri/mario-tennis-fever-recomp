@@ -111,6 +111,25 @@ start; under 9 bytes it takes the recording as empty and stores a null handle. T
 recorder, not the handle. The recorders start with 256 bytes of control memory and their memory callback
 (`basic+0x231c0`) doubles it each time it runs out (256, 512, 1024, 2048).
 
+### Geometry programs (27/11/2026)
+
+143 programs met on the tutorial's court have a geometry stage (NVN stage 2). 141 also have tessellation stages and
+draw patches, which the runtime does not translate yet. The other two are passthrough programs (SPH word 0 bit 24):
+they set per-primitive outputs and pass the vertices on, ending with NVIDIA's exit handler (`LEPC`, `BMOV` into a
+barrier register, `EXIT`, `OUT.FINAL`, `EXIT`):
+
+- the fog volume's: `layer = int(c4[0x20])`, one slice of an 8x8x64 `r11g11b10f` volume per draw (64 draws into a
+  64-layer target). The fog pass reads it by distance, `(d - 50) / 1950`; with every slice in layer 0 the whole court
+  read the horizon's haze.
+- the shadow casters': a viewport mask (`a[0x3a0]`, NV_viewport_array2) read from c10 at an index in c5. The shadow
+  map is a 1024x1024 depth array of 4 layers; a first pass binds all 4 with four viewports (one transform per cascade)
+  and draws the shared casters once, the next three bind one layer each. The program writes no layer, yet each cascade
+  must land in its own layer: viewport-relative layer, read here from SPH byte 0x4f bit 0, which only this program sets
+  (eden's header calls the byte OmapReserved). The cascade viewports exceed Vulkan's `maxViewportDimensions` (54391
+  wide); RADV draws them right, validation reports it.
+
+SPH output map, VTG layout (byte offsets): 0x35 bit 1 marks a layer output, bits 4-7 the position.
+
 ### Open questions
 
 1. Where does the engine keep its shaders? `nvnProgramSetShaders` is imported; the `sysCustomShader*` names suggest a

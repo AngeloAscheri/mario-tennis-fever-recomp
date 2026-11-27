@@ -50,9 +50,14 @@ The open work, in order. Each item becomes one or more issues; the issue says wh
       saturated, so the engine took recordings as empty ([research.md](research.md#the-engines-cache-of-recorded-commands-26112026)).
       The run now reaches the court of the first-run tutorial in 3D (60 s, no stop).
 - [x] The court's lighting drew a grid of dark triangles: indexed quads were drawn as a triangle list.
-- [ ] The court is covered by a blue haze: pass "fog" (program 4711, after the tiled lighting) adds an 8x8x64
-      `r11g11b10f` volume that dominates the lit scene. It was there before the quads were fixed. Find whether the
-      volume, the depth it is read with or the scene's lighting is off.
+- [x] The court is covered by a blue haze: the fog volume's 64 slices were all drawn into its first one, which a
+      passthrough geometry program selects per draw. Passthrough geometry programs are translated and drawn
+      ([research.md](research.md#geometry-programs-27112026)), with every viewport and scissor; the shadow cascades
+      come out with them.
+- [ ] The shadow cascades' viewports exceed `maxViewportDimensions` (Vulkan validation): fine on RADV, check other
+      drivers; a fix would scale the transform in the geometry stage.
+- [ ] Tessellation (141 programs with tessellation and geometry stages draw patches, skipped).
+- [ ] The grass is speckled with black: look at its material and lighting.
 - [ ] The tutorial's message boxes show no text (the same missing glyphs as the title screen).
 - [ ] Some runs skip the movie and show a black screen with a few glyphs instead: find what decides it.
 
