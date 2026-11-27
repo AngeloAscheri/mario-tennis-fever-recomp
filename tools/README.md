@@ -3,6 +3,7 @@
 | File | What it does |
 | --- | --- |
 | `check_content.py` | Refuses game content, keys and generated game code (CI and the pre-commit hook) |
+| `docs/check.py` | Every folder README under `recomp/`, `tools/`, `tests/` and `docs/` names its files (CI and the pre-commit hook) |
 | `cpu/` | The lifter's differential test against Unicorn ([cpu/README.md](cpu/README.md)) |
 | `setup.py` | One command from the user's dump: finds ExeFS/RomFS, rebuilds the engine, lifts the code, makes the fonts, writes `build/game.json` |
 | `run/boot.py` | Builds `build/mkw`, runs to the current stop and explains it (`--explain LOG` for an old log) |

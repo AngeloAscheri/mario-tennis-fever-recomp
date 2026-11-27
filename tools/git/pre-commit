@@ -3,3 +3,4 @@
 # Installed by: git config core.hooksPath tools/git
 set -euo pipefail
 python3 tools/check_content.py --staged
+python3 tools/docs/check.py
