@@ -1214,6 +1214,10 @@ static void ov_set_priority(Cpu *c) { (void)c; }
 #define S_MOUNT_TEMP "_ZN2nn2fs21MountTemporaryStorageEPKc"
 #define S_UNMOUNT "_ZN2nn2fs7UnmountEPKc"
 #define S_COMMIT "_ZN2nn2fs6CommitEPKc"
+// Result nn::fs::CommitSaveData(const char *mount) (mtf-recomp): the SDK's earlier name for Commit on a save data
+// mount, which Mario Tennis Fever calls (after the tutorial, basic+0x119a598); the same commit. Not in probe_symbols:
+// Mario Kart World does not import it.
+#define S_COMMIT_SAVE "_ZN2nn2fs14CommitSaveDataEPKc"
 #define S_CREATE_CACHE "_ZN2nn2fs18CreateCacheStorageEill"
 #define S_DELETE_CACHE "_ZN2nn2fs18DeleteCacheStorageEi"
 #define S_MOUNT_CACHE "_ZN2nn2fs17MountCacheStorageEPKci"
@@ -1250,6 +1254,7 @@ HOST_OVERRIDE(S_SAVE_EXISTS, ov_save_exists);
 HOST_OVERRIDE(S_MOUNT_TEMP, ov_mount_temp);
 HOST_OVERRIDE(S_UNMOUNT, ov_unmount);
 HOST_OVERRIDE(S_COMMIT, ov_commit);
+HOST_OVERRIDE(S_COMMIT_SAVE, ov_commit);   // mtf-recomp
 HOST_OVERRIDE(S_CREATE_CACHE, ov_create_cache);
 HOST_OVERRIDE(S_DELETE_CACHE, ov_delete_cache);
 HOST_OVERRIDE(S_MOUNT_CACHE, ov_mount_cache);
