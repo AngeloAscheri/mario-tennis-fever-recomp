@@ -372,6 +372,35 @@ static void ov_result_ok(Cpu *c) { ret_x(c, 0); }   // RequestImmediateTransmiss
 // nn::nfp::Mount, which sdk binds through its own GOT (MKW never initialises nfp): no NFC reader
 static void ov_nfp_no_device(Cpu *c) { ret_x(c, NFP_R_DEVICE_NOT_FOUND); }
 
+// mtf-recomp: the rest of nn::nfp as a console with no NFC reader answers it. Mario Tennis Fever initialises nfp when a
+// free match is set up (basic+0x91be50, on a thread it starts then) and looks for amiibo readers.
+static int nfp_state;   // nn::nfp::State: 0 None, 1 Init
+// void nfp::Initialize(), void nfp::Finalize()
+static void ov_nfp_initialize(Cpu *c) { (void)c; nfp_state = 1; rt_log("nfp: initialised, no NFC reader"); }
+static void ov_nfp_finalize(Cpu *c) { (void)c; nfp_state = 0; }
+// nfp::State nfp::GetState()
+static void ov_nfp_get_state(Cpu *c) { ret_x(c, (uint64_t)nfp_state); }
+// Result nfp::ListDevices(DeviceHandle *out, int *count, int max): no device, count 0
+static void ov_nfp_list_devices(Cpu *c) {
+    int32_t *count = arg_p(c, 1);
+    if (count) *count = 0;
+    ret_x(c, NFP_R_DEVICE_NOT_FOUND);
+}
+// Result nfp::AttachAvailabilityChangeEvent(os::SystemEventType *): a real event the game may wait on, never signalled
+// (the reader's availability never changes)
+static void ov_nfp_availability_event(Cpu *c) {
+    kern_bind_system_event(c, arg_x(c, 0), 0);
+    ret_x(c, 0);
+}
+// Result nfp::AttachActivateEvent / AttachDeactivateEvent(os::SystemEventType *, const DeviceHandle &): no such
+// device; the event is still made real, never signalled, in case the game waits on it without checking the result
+static void ov_nfp_device_event(Cpu *c) {
+    kern_bind_system_event(c, arg_x(c, 0), 0);
+    ret_x(c, NFP_R_DEVICE_NOT_FOUND);
+}
+// nfp::DeviceState nfp::GetDeviceState(const DeviceHandle &): Init (0), never searching
+static void ov_nfp_device_state(Cpu *c) { ret_x(c, 0); }
+
 // void err::ShowError(Result): the game's error dialog, logged
 static void ov_show_error(Cpu *c) {
     uint32_t r = (uint32_t)arg_x(c, 0);
@@ -923,6 +952,34 @@ HOST_OVERRIDE("_ZN2nn5prepo10PlayReport4SaveERKNS_7account3UidE", ov_report_save
 HOST_OVERRIDE("_ZN2nn5prepo28RequestImmediateTransmissionEv", ov_result_ok);
 HOST_OVERRIDE("_ZN2nn5prepo27AddInternetConnectionStatusEPNS0_10PlayReportEPKcS4_S4_", ov_result_ok);
 HOST_OVERRIDE("_ZN2nn3nfp5MountERKNS0_12DeviceHandleENS0_9ModelTypeENS0_11MountTargetE", ov_nfp_no_device);
+// mtf-recomp: the rest of nfp, no NFC reader (above)
+HOST_OVERRIDE("_ZN2nn3nfp10InitializeEv", ov_nfp_initialize);
+HOST_OVERRIDE("_ZN2nn3nfp8FinalizeEv", ov_nfp_finalize);
+HOST_OVERRIDE("_ZN2nn3nfp8GetStateEv", ov_nfp_get_state);
+HOST_OVERRIDE("_ZN2nn3nfp11ListDevicesEPNS0_12DeviceHandleEPii", ov_nfp_list_devices);
+HOST_OVERRIDE("_ZN2nn3nfp29AttachAvailabilityChangeEventEPNS_2os15SystemEventTypeE", ov_nfp_availability_event);
+HOST_OVERRIDE("_ZN2nn3nfp19AttachActivateEventEPNS_2os15SystemEventTypeERKNS0_12DeviceHandleE", ov_nfp_device_event);
+HOST_OVERRIDE("_ZN2nn3nfp21AttachDeactivateEventEPNS_2os15SystemEventTypeERKNS0_12DeviceHandleE", ov_nfp_device_event);
+HOST_OVERRIDE("_ZN2nn3nfp14GetDeviceStateERKNS0_12DeviceHandleE", ov_nfp_device_state);
+// Result calls on a device handle: there is none
+HOST_OVERRIDE("_ZN2nn3nfp14StartDetectionERKNS0_12DeviceHandleE", ov_nfp_no_device);
+HOST_OVERRIDE("_ZN2nn3nfp13StopDetectionERKNS0_12DeviceHandleE", ov_nfp_no_device);
+HOST_OVERRIDE("_ZN2nn3nfp7UnmountERKNS0_12DeviceHandleE", ov_nfp_no_device);
+HOST_OVERRIDE("_ZN2nn3nfp5FlushERKNS0_12DeviceHandleE", ov_nfp_no_device);
+HOST_OVERRIDE("_ZN2nn3nfp7RestoreERKNS0_12DeviceHandleE", ov_nfp_no_device);
+HOST_OVERRIDE("_ZN2nn3nfp9GetNpadIdEPjRKNS0_12DeviceHandleE", ov_nfp_no_device);
+HOST_OVERRIDE("_ZN2nn3nfp10GetTagInfoEPNS0_7TagInfoERKNS0_12DeviceHandleE", ov_nfp_no_device);
+HOST_OVERRIDE("_ZN2nn3nfp12GetModelInfoEPNS0_9ModelInfoERKNS0_12DeviceHandleE", ov_nfp_no_device);
+HOST_OVERRIDE("_ZN2nn3nfp13GetCommonInfoEPNS0_10CommonInfoERKNS0_12DeviceHandleE", ov_nfp_no_device);
+HOST_OVERRIDE("_ZN2nn3nfp15GetRegisterInfoEPNS0_12RegisterInfoERKNS0_12DeviceHandleE", ov_nfp_no_device);
+HOST_OVERRIDE("_ZN2nn3nfp19OpenApplicationAreaERKNS0_12DeviceHandleEj", ov_nfp_no_device);
+HOST_OVERRIDE("_ZN2nn3nfp18GetApplicationAreaEPvPmRKNS0_12DeviceHandleEm", ov_nfp_no_device);
+HOST_OVERRIDE("_ZN2nn3nfp18SetApplicationAreaERKNS0_12DeviceHandleEPKvm", ov_nfp_no_device);
+HOST_OVERRIDE("_ZN2nn3nfp21CreateApplicationAreaERKNS0_12DeviceHandleERKNS0_25ApplicationAreaCreateInfoE", ov_nfp_no_device);
+// the amiibo settings applets need a tag on a reader
+HOST_OVERRIDE("_ZN2nn3nfp13StartRestorerEPNS0_12DeviceHandleERKNS0_24AmiiboSettingsStartParamERKNS0_7TagInfoE", ov_nfp_no_device);
+HOST_OVERRIDE("_ZN2nn3nfp19StartGameDataEraserEPNS0_12DeviceHandleERKNS0_24AmiiboSettingsStartParamERKNS0_7TagInfoE", ov_nfp_no_device);
+HOST_OVERRIDE("_ZN2nn3nfp29StartNicknameAndOwnerSettingsEPNS0_12DeviceHandleEPbPNS0_12RegisterInfoERKNS0_24AmiiboSettingsStartParamERKNS0_7TagInfoE", ov_nfp_no_device);
 HOST_OVERRIDE("_ZN2nn3err9ShowErrorENS_6ResultE", ov_show_error);
 HOST_OVERRIDE("_ZN2nn3err9ShowErrorERKNS0_18ErrorResultVariantE", ov_show_error_variant);
 HOST_OVERRIDE("_ZN2nn6crypto36GenerateCryptographicallyRandomBytesEPvm", ov_random_bytes);
