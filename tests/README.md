@@ -11,3 +11,4 @@ Run with `uv run pytest -q` (seconds). None needs the game: they run in CI on ev
 | `test_make_shared_fonts.py` | The stand-in fonts' BFTTF container reads back as the runtime reads it |
 | `test_boot_explain.py` | `tools/run/boot.py` finds the SDK call to replace in a stop's stack |
 | `test_lifter.py` | Plain instructions lift; the ARMv8.1-8.3 classes agree with Unicorn (`tools/cpu/lift_diff.py`) |
+| `test_shaders_collect.py` | `tools/shaders/collect.py` runs and translates until nothing is missing, with fake runs |

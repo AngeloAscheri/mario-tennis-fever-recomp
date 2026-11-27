@@ -10,6 +10,7 @@ Needs build/game.json from tools/setup.py. The build needs clang, lld, ninja and
 distrobox or toolbox container.
 
 Usage: uv run tools/run/boot.py [--name boot] [--seconds 20 | --boot] [--no-build] [--box NAME] [--trace svc,fs]
+                                [--spirv-dump DIR]
        uv run tools/run/boot.py --explain build/run/boot.log     # only read a log written before
 """
 
@@ -122,6 +123,8 @@ def main() -> int:
     ap.add_argument("--no-build", action="store_true")
     ap.add_argument("--box", default=os.environ.get("MTF_BOX"), help="distrobox/toolbox with the toolchain")
     ap.add_argument("--trace", help="MKW_TRACE: svc, host, fs, gfx, sched... comma separated")
+    ap.add_argument("--spirv-dump", type=Path, help="MKW_SPIRV_DUMP: save the programs without SPIR-V here "
+                    "(tools/shaders/collect.py)")
     ap.add_argument("--timeout", type=int, default=180)
     ap.add_argument("--explain", type=Path, help="only explain this log")
     args = ap.parse_args()
@@ -143,6 +146,8 @@ def main() -> int:
                      "|| { tail -30 build/run/build.log; exit 99; }")
     mode = "--boot" if args.boot else f"--seconds {args.seconds:g}"
     env = f"MKW_TRACE={q(args.trace)} " if args.trace else ""
+    if args.spirv_dump:
+        env += f"MKW_SPIRV_DUMP={q(str(args.spirv_dump.resolve()))} "
     steps.append(f"{env}timeout {args.timeout} build/mkw --exefs {q(game['modules'])} --romfs {q(game['romfs'])} "
                  f"--profile build/run/profile {mode} > {q(str(log))} 2>&1")
     print(f"building and running {game['version']}{' in ' + args.box if args.box else ''} -> {log}")
