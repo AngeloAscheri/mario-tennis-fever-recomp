@@ -78,9 +78,9 @@ MIT-compatible, credited. The console's behaviour is the default. The full list:
 
 ## Shaders
 
-The game's shaders are translated to SPIR-V ahead of time by mkw-recomp's translator (`sm86/`). For now they are
-collected from a run: `MKW_SPIRV_DUMP=build/shader-dump` saves every program the run had no SPIR-V for, then
-`uv run tools/shaders/translate.py --shaders <empty dir with an index.csv header> --dumped build/shader-dump
---dumped-only` translates them into `build/spirv/`. The translator needs `build/sm86/instructions.json`, built on
-your machine from NVIDIA's `nvdisasm` ([sm86/spec/README.md](../sm86/spec/README.md)). Issue #11 is making this one
-step.
+The game's shaders are translated to SPIR-V ahead of time by mkw-recomp's translator (`sm86/`). The ones the game
+builds in play are collected from runs, in one command: `uv run tools/shaders/collect.py [--box NAME]` runs the game
+with `MKW_SPIRV_DUMP=build/shader-dump`, translates every program it had no SPIR-V for into `build/spirv/`, and repeats
+until a run ends with "no missing shader programs". The translator needs `build/sm86/instructions.json`, built on
+your machine from NVIDIA's `nvdisasm` ([sm86/spec/README.md](../sm86/spec/README.md)); the command says so when it is
+missing.
