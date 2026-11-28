@@ -465,12 +465,11 @@ NVN_API(nvnMemoryPoolGetBufferAddress) { ret_x(c, (uintptr_t)((const pool_t *)ar
 // ---------- Buffers: they reference their pool and own no storage
 // void nvnBufferBuilderSetDevice(NVNbufferBuilder *b, NVNdevice *d)
 NVN_API(nvnBufferBuilderSetDevice) { ((buf_builder_t *)arg_p(c, 0))->dev = arg_p(c, 1); }
-// void nvnBufferBuilderSetDefaults(NVNbufferBuilder *b): keeps the device
+// void nvnBufferBuilderSetDefaults(NVNbufferBuilder *b): pool, offset and size cleared, the device kept (as the
+// driver, sdk+0x5c2c80)
 NVN_API(nvnBufferBuilderSetDefaults) {
     buf_builder_t *b = arg_p(c, 0);
-    NVNdevice *d = b->dev;
-    memset(b, 0, sizeof *b);
-    b->dev = d;
+    b->pool = NULL, b->off = 0, b->size = 0;
 }
 // void nvnBufferBuilderSetStorage(NVNbufferBuilder *b, NVNmemoryPool *p, ptrdiff_t offset, size_t size)
 NVN_API(nvnBufferBuilderSetStorage) {
@@ -488,7 +487,7 @@ NVN_API(nvnBufferInitialize) {
         ret_x(c, 0);
         return;
     }
-    *o = (buf_t){BUF_MAGIC, s->pool, s->off, s->size};
+    *o = (buf_t){.magic = BUF_MAGIC, .dev = s->dev, .pool = s->pool, .off = s->off, .size = s->size};
     ret_x(c, 1);
 }
 // void nvnBufferFinalize(NVNbuffer *b)

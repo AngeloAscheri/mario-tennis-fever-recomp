@@ -30,8 +30,21 @@ static inline int nvn_gpu_only(uint64_t a) { return a - RT_GPU_VA_BASE < RT_GPU_
 // game_mem the game's storage (never touched), span the reserved window bytes, host NULL. Every other pool: mem is the
 // game's storage, the GPU address equals the guest address.
 
-typedef struct { NVNdevice *dev; pool_t *pool; int64_t off; uint64_t size; } buf_builder_t;   FITS(buf_builder_t, NVNbufferBuilder);
-typedef struct { uint32_t magic; pool_t *pool; int64_t off; uint64_t size; } buf_t;           FITS(buf_t, NVNbuffer);
+// Buffers and their builders keep the NVN2 driver's field offsets (mtf-recomp): device +0x8, pool +0x10, offset +0x18,
+// size +0x20, as the driver's own procs read and write them (Mario Tennis Fever's sdk, build id 32a9ac14:
+// BufferBuilderSetStorage sdk+0x5c2c90, BufferInitialize sdk+0x5c2ce0, BufferGetAddress sdk+0x5c2da0,
+// BufferGetMemoryOffset sdk+0x5c2dd0).
+// Camelot's engine makes a view of a buffer by copying the NVNbuffer and adding the view's offset to +0x18 itself: with
+// pool, offset and size at +0x8/+0x10/+0x18 that grew the size, every view of a uniform ring had its base address, and
+// the 2D, icon and crowd passes all read one constant block that the CPU kept rewriting (the crowd's billboards took a
+// 512x512 orthographic matrix for the camera and drew a few pixels in a corner of the stands, 27/11/2026).
+typedef struct { uint64_t reserved_; NVNdevice *dev; pool_t *pool; int64_t off; uint64_t size; } buf_builder_t;   FITS(buf_builder_t, NVNbufferBuilder);
+typedef struct { uint32_t magic, pad_; NVNdevice *dev; pool_t *pool; int64_t off; uint64_t size; } buf_t;      FITS(buf_t, NVNbuffer);
+_Static_assert(__builtin_offsetof(buf_t, pool) == 0x10 && __builtin_offsetof(buf_t, off) == 0x18 &&
+                   __builtin_offsetof(buf_t, size) == 0x20, "NVNbuffer field offsets of the NVN2 driver");
+_Static_assert(__builtin_offsetof(buf_builder_t, dev) == 0x8 && __builtin_offsetof(buf_builder_t, pool) == 0x10 &&
+                   __builtin_offsetof(buf_builder_t, off) == 0x18 && __builtin_offsetof(buf_builder_t, size) == 0x20,
+               "NVNbufferBuilder field offsets of the NVN2 driver");
 typedef struct {                                           // NVNmappingRequest as main passes it (0x28 bytes)
     const NVNmemoryPool *physical_pool;                    // NULL unmaps
     int64_t physical_offset, virtual_offset;
