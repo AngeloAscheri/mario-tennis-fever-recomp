@@ -37,7 +37,10 @@ The open work, in order. Each item becomes one or more issues; the issue says wh
       27 of 27 valid SPIR-V. The first text is drawn. Through the tutorial's court: 438 of 438 (a shadow sampler with a
       bias needed `GL_EXT_texture_shadow_lod`, as textureLod already did).
 - [ ] [#11](../../../issues/11) Every program of the game, not only the ones a run met: where Tennis keeps them (`42`, #2).
-- [ ] The controller button icons come out as "?": the stand-in fonts lack the Nintendo extension font's glyphs.
+- [x] The controller button icons came out as "?": the stand-in fonts lacked the Nintendo extension font's glyphs.
+      They get icons of their own where the button is known, a blank button elsewhere, or the console's font with
+      `--ext` ([research.md](research.md#the-button-icons-27112026)).
+- [ ] Which buttons U+E0AB ("Confirmar"), E0AD, E0AE, E0F1 and E0F2 are: blank buttons in the stand-in fonts.
 
 ## F4 — First picture
 
@@ -45,8 +48,7 @@ The open work, in order. Each item becomes one or more issues; the issue says wh
       libvpx) and the title screen draws on Vulkan.
 - [x] The title screen's text samples its font (it read the movie's texture: two texture pools shared one slot table).
 - [x] Only some characters of the title screen's text are drawn: the glyph staging texture was taken as written by
-      the GPU ([research.md](research.md#the-texts-glyph-cache-27112026)). The button icons stay "?" (the stand-in
-      fonts).
+      the GPU ([research.md](research.md#the-texts-glyph-cache-27112026)).
 - [ ] Some movie frames show blocks of an older picture (the VP9 decode or its frame order).
 - [x] After the title screen (A): `CallCommands with a null handle` from `basic+0x11a6b38`. The control memory's usage
       saturated, so the engine took recordings as empty ([research.md](research.md#the-engines-cache-of-recorded-commands-26112026)).

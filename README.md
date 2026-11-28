@@ -96,7 +96,7 @@ uv run recomp/versions.py <exefs>            # which version you have
 uv run tools/unpack_engine.py <exefs>        # rebuilds the engine into build/, writes build/modules-<version>/
 uv run python recomp/gen.py --exefs build/modules-<version>   # lifts main + basic + sdk to C (seconds)
 uv run pytest -q                             # the tests, no game needed
-uv run tools/make_shared_fonts.py            # stand-in system fonts from a free font, in build/shared-fonts/
+uv run tools/make_shared_fonts.py            # stand-in system fonts and button icons, in build/shared-fonts/
 uv run tools/build/build.py --exefs build/modules-<version>    # the runtime and the game code: build/mkw
 build/mkw --exefs build/modules-<version> --romfs <dump>/romfs --boot
 ```

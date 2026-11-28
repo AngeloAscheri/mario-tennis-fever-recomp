@@ -157,7 +157,7 @@ tutorial's messages and the title screen's text draw. Three of the six images in
 mkw-recomp's translator marks every image the same way.
 
 nn::fontll answered every lookup the text made; the only misses were the Nintendo extension font's private-use codes
-(0xE0xx, the button icons), which the stand-in fonts lack.
+(0xE0xx, the button icons), which the stand-in fonts lacked (see "The button icons").
 
 ### Past the tutorial: a free match (27/11/2026)
 
@@ -240,6 +240,22 @@ menu's first entry plays the next one. Three matches in a 6-minute run, about 60
 presses every 150 ticks (the input script's new `every <period> until <frame>`, and `include` to start from match.txt),
 which serves whenever Mario serves and falls back into step after a miss. `tools/run/boot.py --timeout` now defaults to
 the run's length plus two minutes: its fixed 180 s had cut longer runs short without a word.
+
+### The button icons (27/11/2026)
+
+Up to the free match the game's text asks nn::fontll (`ScalableFontEngine::CheckGlyphExist`, watched with a host
+observer) for thirteen private-use code points: U+E0A4, E0A5, E0AB, E0AD, E0AE, E0B5, E0B6, E0E4, E0E5, E0EF, E0F0,
+E0F1, E0F2. A diagnostic font that drew each code as its hex digits showed where: U+E0F0/U+E0EF before "Terminar" in the
+tutorial (which PLUS ends) and before "Omitir" in the match's introduction, U+E0E5 in "Pulsa _ para añadir más jugadores
+humanos", U+E0AB before "Confirmar". The bottom bars' minus, plus and stick icons are the game's own images, not text.
+libtesla's key table (GPL-2.0, facts only) gives A, B, X, Y, L, R, ZL, ZR, SL, SR at U+E0A0-E0A9 and plus/minus at
+U+E0B5/E0B6, outlined, and its "U+E0E1 Back  U+E0E0 OK" the filled set from U+E0E0, which the game's own uses agree with
+(U+E0E5 is R, U+E0EF/E0F0 plus/minus). No source we can use names U+E0AB, E0AD, E0AE, E0F1, E0F2.
+
+`tools/make_shared_fonts.py` now adds icons of its own to the stand-in fonts at the known code points (circles and
+shoulder shapes around Noto Sans Bold's letters, outlined or filled with the letter cut out) and a blank button at the
+unknown ones, so no "?" is left on the way to a match; `--ext` serves the console's own Nintendo extension font, dumped
+by the player, for exact icons.
 
 ### Open questions
 
