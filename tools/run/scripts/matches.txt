@@ -1,0 +1,12 @@
+# MKW_INPUT_SCRIPT: match.txt's way to a free match (Mario against Donkey Kong, 7 points), then serves until frame
+# 60000: the match plays to its end, the post-match menu's first entry ("Jugar otra vez") starts the next one, and so
+# on, about 16 minutes of matches. Needs a profile with no save, as match.txt. Timings measured on 327680 (27/11/2026).
+include match.txt
+# Mario's serve: A tosses the ball (the prompt "Lanzar"), A again while it is up hits it ("Golpear", about 12 to 84
+# ticks after the toss; 40 is near the top). Mario does not move, so Donkey Kong wins the rallies and each match ends
+# 0-7, about 6500 ticks from the first serve to the next match's (three matches in 6 minutes). A pair every 150 ticks
+# serves each time Mario serves and falls back into step after a miss (a toss on the pair's second press loses that
+# ball and the next pair serves). The same presses skip the replays, press through the results and an unlock screen,
+# and pick "Jugar otra vez".
+3800 A 6 every 150 until 60000
+3840 A 6 every 150 until 60000

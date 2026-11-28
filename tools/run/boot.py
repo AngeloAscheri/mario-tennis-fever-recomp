@@ -122,9 +122,11 @@ def main() -> int:
     ap.add_argument("--no-build", action="store_true")
     ap.add_argument("--box", default=os.environ.get("MTF_BOX"), help="distrobox/toolbox with the toolchain")
     ap.add_argument("--trace", help="MKW_TRACE: svc, host, fs, gfx, sched... comma separated")
-    ap.add_argument("--timeout", type=int, default=180)
+    ap.add_argument("--timeout", type=int, help="kill the run after this many seconds (default: --seconds + 120, at least 180)")
     ap.add_argument("--explain", type=Path, help="only explain this log")
     args = ap.parse_args()
+    if args.timeout is None:  # a fixed 180 s cut runs asked for longer short (a whole match takes ~5 min)
+        args.timeout = max(180, int(args.seconds) + 120)
     if args.explain:
         return explain(args.explain)
     game_file = ROOT / "build/game.json"
