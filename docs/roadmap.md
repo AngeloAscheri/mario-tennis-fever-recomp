@@ -77,8 +77,9 @@ The open work, in order. Each item becomes one or more issues; the issue says wh
 
 ## F5 — Playable
 
-- [ ] Controllers, audio, movies, saves; a match from start to end. Reached: the tutorial ends and saves, the
-      menus, a free match starts and plays (`tools/run/scripts/match.txt`).
+- [ ] Controllers, audio, movies, saves. Reached: the tutorial ends and saves, the menus, a free match plays to its end,
+      saves and unlocks a character, and the next starts (`tools/run/scripts/matches.txt`,
+      [research.md](research.md#a-match-to-its-end-27112026)).
 
 ## F6 and later
 

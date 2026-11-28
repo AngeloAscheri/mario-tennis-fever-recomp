@@ -231,6 +231,16 @@ grew in size and kept the ring's base address. With the driver's layout (runtime
 view has its own block and the stands fill. mkw-recomp shares the old layout; whether MKW makes views the same way is
 not checked.
 
+### A match to its end (27/11/2026)
+
+`tools/run/scripts/matches.txt` goes on from match.txt: Mario serves (A tosses the ball under the prompt "Lanzar", A
+again within about 12 to 84 ticks hits it, "Golpear") and, as he never moves, Donkey Kong wins every rally; the 7-point
+match ends 0-7, shows "Juego, set y partido", unlocks Kamek ("Disputa 1 partido de tenis") and saves, and the post-match
+menu's first entry plays the next one. Three matches in a 6-minute run, about 60 fps, no stop. The serve is a pair of
+presses every 150 ticks (the input script's new `every <period> until <frame>`, and `include` to start from match.txt),
+which serves whenever Mario serves and falls back into step after a miss. `tools/run/boot.py --timeout` now defaults to
+the run's length plus two minutes: its fixed 180 s had cut longer runs short without a word.
+
 ### Open questions
 
 1. Where does the engine keep its shaders? `nvnProgramSetShaders` is imported; the `sysCustomShader*` names suggest a
