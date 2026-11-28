@@ -135,7 +135,9 @@ def translate_one(
     try:
         # a TES's tessellation parameters (SET_TESSELLATION_PARAMETERS) at control +0x5c (mtf-recomp, glsl head.py)
         tess = struct.unpack_from("<I", ctl, 0x5C)[0] if stage == "tes" and len(ctl) >= 0x60 else 0
-        src, refl = glsl.translate(sph, insns, stage, glsl.compute_shape(ctl) if stage == "cs" else None, c1, tess)
+        # a compute program's packed resource table in c0 (runtime gfx_shader_refl.c cs_res): a TEX by a dynamic handle
+        table = tuple(ctl[o] for o in (0xB1, 0xB2, 0xB3, 0xB6, 0xA9)) if stage == "cs" and len(ctl) > 0xB6 else None
+        src, refl = glsl.translate(sph, insns, stage, glsl.compute_shape(ctl) if stage == "cs" else None, c1, tess, table)
     except glsl.Unsupported as e:
         return f"unsupported: {e}", ""
     except (KeyError, ValueError, IndexError) as e:  # a translator bug in one program must not stop the census

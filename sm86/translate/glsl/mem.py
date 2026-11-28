@@ -123,9 +123,19 @@ class MemOps:
                 self.uregs.add(n + k)
                 loads.append(self.cb_word(bank, self.ureg(i.v("URa")), addr + 4 * k))
             tmp = ", ".join(f"lw{k} = {w}" for k, w in enumerate(loads))
-            return f"{{ uint {tmp}; {' '.join(f'ur{n + k} = lw{k};' for k in range(size))} }}"
+            shadow = ""
+            for k in range(size):
+                self.ur_handle.discard(n + k)
+            if bank == 0 and size == 1:
+                # mtf-recomp: where the word came from, for a TEX that takes it as its texture handle (tex.py tex_dyn):
+                # a compute program's bound handles sit in its packed table in c0, one slot every 8 bytes
+                self.ur_handle.add(n)
+                self.ur_handle_decl.add(n)
+                shadow = f" uaddr{n} = {self.ureg(i.v('URa'))} + {addr:#x}u;"
+            return f"{{ uint {tmp};{shadow} {' '.join(f'ur{n + k} = lw{k};' for k in range(size))} }}"
         for k in range(size):
             self.uregs.add(n + k)
+            self.ur_handle.discard(n + k)
             out.append(f"ur{n + k} = {self.const(bank, addr + 4 * k, spec=not (size == 2 and bank == 0))};")
         if size == 2 and bank == 0:
             self.ur_ssbo[n] = addr  # a storage buffer address: the driver keeps one per binding in bank 0
@@ -291,6 +301,7 @@ class MemOps:
             # Any other write ends both: a base kept after `UIADD3 UR4, UR4, 0x100` lost the offset of the accesses
             # through it (115 programs, among them the cacti's draw arguments; tools/shaders/track_audit.py).
             n = i.v("URd")
+            self.ur_handle.discard(n)   # no longer a handle read from c0 at a known address (uldc)
             src = None
             if i.op in ("UIADD3", "ULEA", "UMOV", "UIMAD"):
                 src = next((self.ur_ssbo.get(i.v(r), self.ur_derived.get(i.v(r))) for r in ("URa", "URb", "URc")

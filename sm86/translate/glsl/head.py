@@ -143,6 +143,12 @@ def declarations(b, stage: str, shape: tuple[int, int, int, int] | None) -> list
         refl["textures"].append({"binding": nb, "type": sampler_type(t), "format": "Unknown", "cbuf_slot": bank,
                                  "handle": idx, "array": 1, "separate": False, "flags": 0})  # fmt: skip
         nb += 1
+    if getattr(b, "dyn_tex", None):   # mtf-recomp: TEX.URC's array of the packed table's textures (tex.py tex_dyn)
+        t, n, base = b.dyn_tex
+        head.append(f"layout(binding = {nb}) uniform {t} tdyn[{n}];")
+        refl["textures"].append({"binding": nb, "type": sampler_type(t), "format": "Unknown", "cbuf_slot": 0,
+                                 "handle": base // 4, "array": n, "separate": False, "flags": 0})  # fmt: skip
+        nb += 1
     for (bank, idx), t in sorted(b.images.items()):
         fmt = "r32ui, " if t.startswith("uimage") else ""
         head.append(f"layout({fmt}binding = {nb}) uniform {t} i{bank}_{idx};")

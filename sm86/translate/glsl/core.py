@@ -71,6 +71,11 @@ class Builder(AluOps, MemOps, TexOps, ThreadOps):
         self.gs_full = False
         self.patch_attrs: set[int] = set()
         self.tess_mode = 0  # tes: the TessMode word of the control section (head.tes_layout)
+        # mtf-recomp: uniform registers holding a word read from c0 at a dynamic address (uldc), kept in uaddr<n>
+        self.ur_handle: set[int] = set()
+        self.ur_handle_decl: set[int] = set()
+        self.cs_table: tuple[int, ...] | None = None  # cs: control +0xb1, +0xb2, +0xb3, +0xb6, +0xa9 (gfx_shader_refl.c cs_res)
+        self.dyn_tex: tuple[str, int, int] | None = None  # TEX by a dynamic handle: sampler type, count, table byte
         self.images_written: set[tuple[int, int]] = set()  # those a SUST, SURED or SUATOM writes (reflection flag 4)
         self.ssbos: set[int] = set()  # driver bank 0 offsets of the storage buffer addresses read
         self.ssbos_written: set[int] = set()  # those a STG, ATOMG or RED stores into (reflection flag 1)
@@ -414,10 +419,12 @@ def translate(
     shape: tuple[int, int, int, int] | None = None,
     c1: bytes = b"",
     tess_mode: int = 0,
+    cs_table: tuple[int, ...] | None = None,
 ) -> tuple[str, dict]:
     """shape: compute_shape() of a compute program; without it the workgroup is 1x1x1 (a census without controls).
     c1: the program's own constants (extract.py <sha1>.c1), where a BRX's jump table is.
-    tess_mode: a TES's TessMode word, control section +0x5c (tools/shaders/translate.py; head.tes_layout)."""
+    tess_mode: a TES's TessMode word, control section +0x5c (tools/shaders/translate.py; head.tes_layout).
+    cs_table: a compute program's packed table counts (control +0xb1, +0xb2, +0xb3, +0xb6, +0xa9; tex.py tex_dyn)."""
     if stage not in ("ps", "vs", "cs", "tes?", "gs", "tcs", "tes"):
         raise Unsupported(f"stage {stage}")
     b = Builder(sph, stage)
@@ -429,6 +436,7 @@ def translate(
     b.vtg = stage in ("tcs", "tes") or b.gs_full
     if stage == "tes":
         b.tess_mode = tess_mode
+    b.cs_table = cs_table
     insns = inline_single_call(insns)
     writes = [i for i in insns if i.op == "ISBEWR"]
     # a VS header with payload writes only (no per-vertex SKEW writes, no index bytes) is a task program
@@ -564,7 +572,8 @@ def translate(
     if first_form:
         head.append(first_store.declaration())
         b.reflection["first_store"] = first_form
-    regs = ", ".join([f"r{n} = 0u" for n in sorted(b.regs)] + [f"ur{n} = 0u" for n in sorted(b.uregs)]) or "rdummy = 0u"
+    regs = ", ".join([f"r{n} = 0u" for n in sorted(b.regs)] + [f"ur{n} = 0u" for n in sorted(b.uregs)]
+                     + [f"uaddr{n} = 0u" for n in sorted(b.ur_handle_decl)]) or "rdummy = 0u"
     preds = ", ".join([f"p{n} = false" for n in range(7)] + [f"up{n} = false" for n in range(7)])
     # precise: no FMUL + FADD fused into an FMA by the compiler (NoContraction, as eden-nx2 marks each FADD, FMUL and
     # FFMA: frontend/maxwell/translate/impl/floating_point_add.cpp:25, floating_point_multiply.cpp:66). Two programs

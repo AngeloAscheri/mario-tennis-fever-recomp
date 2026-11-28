@@ -152,8 +152,10 @@ class TexOps:
             return f"uintBitsToFloat({reg(regs[n])})"
 
         coords = [f(f"c{k}") for k in range(ncoord)]
-        key = (i.v("bank5"), i.v("tsPtrIdx"))
-        t = f"t{key[0]}_{key[1]}"
+        sampler = f"sampler{name}{'Shadow' if dc else ''}"
+        dyn = not i.has("bank5") and i.has("URc")   # TEX.URC: the handle in a uniform register (tex_dyn)
+        key = None if dyn else (i.v("bank5"), i.v("tsPtrIdx"))
+        t = self.tex_dyn(i, sampler) if dyn else f"t{key[0]}_{key[1]}"
         if aoffi:  # 4-bit signed texel offsets per axis; GLSL wants them constant, so they move the coordinates
             lvl = f"int({f('lod')})" if lod == "LL" else "0"
             for k in range(ncoord):
@@ -164,8 +166,8 @@ class TexOps:
         if dc:
             coords.append(f("ref"))
         vec = coords[0] if len(coords) == 1 else f"vec{len(coords)}({', '.join(coords)})"
-        sampler = f"sampler{name}{'Shadow' if dc else ''}"
-        self.textures[key] = sampler
+        if key is not None:
+            self.textures[key] = sampler
         if dc and lod in ("LL", "LB"):
             # textureLod, and texture with a bias (mtf-recomp: three of Mario Tennis Fever's programs), on array and
             # cube shadow samplers
@@ -199,6 +201,28 @@ class TexOps:
             call = f"vec4({call}, 0.0, 0.0, 1.0)"
         outs = self.tex_outs(i)
         return f"{{ vec4 tv = {call}; {' '.join(outs)} }}" if outs else ""
+
+    def tex_dyn(self, i: Insn, sampler: str) -> str:
+        """TEX.URC (mtf-recomp): the texture handle in a uniform register instead of at c[bank][offset]. Taken when that
+        register holds a word read from c0 at a dynamic address (mem.uldc keeps it in uaddr<n>) inside a compute
+        program's packed table of bound handles (runtime gfx_shader_refl.c cs_res; base past its push constants, uniform
+        and storage tables, 8 bytes a slot): the texture is then that table's slot, one of an array of the table's
+        textures, reflected as one binding of that many from slot 0. Mario Tennis Fever's crowd: each workgroup of a
+        compute program samples slot gl_WorkGroupID.x (an impostor) and writes its visible rectangle, which the
+        billboards' vertex stage sizes them by; skipped, every billboard collapsed to a point and the stands were
+        empty. The index comes from a uniform register, uniform within the workgroup as indexing a sampler array
+        without nonuniformEXT requires."""
+        u = i.v("URc")
+        if self.stage != "cs" or self.cs_table is None or u not in self.ur_handle or i.v("tid8", 0):
+            raise Unsupported(f"TEX.URC: handle in UR{u} of unknown origin")
+        nub, nsb, ntex, _nimg, pc = self.cs_table
+        base, n = 0x10 + 4 * pc + 16 * nub + 16 * nsb, ntex
+        if not 1 <= n <= 128:
+            raise Unsupported(f"TEX.URC: {n} textures in the table")
+        if self.dyn_tex is not None and self.dyn_tex[0] != sampler:
+            raise Unsupported(f"TEX.URC as {sampler} and {self.dyn_tex[0]}")
+        self.dyn_tex = (sampler, n, base)
+        return f"tdyn[min((uaddr{u} - {base:#x}u) >> 3u, {n - 1}u)]"
 
     def tex_outs(self, i: Insn) -> list[str]:
         """The components set in wmsk, in order, from tv to Rd, Rd+1, Rd2, Rd2+1. With .F16 (f16rm) two components

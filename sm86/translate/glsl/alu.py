@@ -133,8 +133,15 @@ class AluOps:
         return self.flo(i)
 
     def ulea(self, i: Insn) -> str:
-        if i.v("UPu", PT) != PT:
-            raise Unsupported("ULEA with carry")
+        pu = i.v("UPu", PT)
+        if pu != PT:
+            # ULEA.LO with a carry out to UPu, as LEA's (mtf-recomp): the low word of a 64-bit address whose high word
+            # UIADD3.X adds the carry to (Mario Tennis Fever's crowd rectangles, one 16-byte record a workgroup)
+            if i.sym("hilo") == "HI":
+                raise Unsupported("ULEA.HI with carry")
+            a, b, sc = self.neg_u(i, "a"), self.neg_u(i, "b"), i.v("scaleU5")
+            return (f"{{ uint64_t s3 = uint64_t({a} << {sc}u) + uint64_t({b}); {self.dst(i, 'uint(s3)')} "
+                    f"up{pu} = (s3 >> 32) != 0ul; }}")  # fmt: skip
         return self.lea(i)
 
     def usel(self, i: Insn) -> str:
