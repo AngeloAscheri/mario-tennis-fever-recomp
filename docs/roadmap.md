@@ -63,7 +63,10 @@ The open work, in order. Each item becomes one or more issues; the issue says wh
       ([research.md](research.md#tessellation-27112026)); 128 such programs are registered, the others not yet met.
 - [ ] An FS of the free match samples a 2D `R16G16_UNORM` texture with a depth compare (Vulkan validation
       VUID-vkCmdDrawIndexed-None-06479; the runtime has no depth twin for that format).
-- [ ] A compute program whose texture handle comes from a uniform register (`tex_scr_urc_`) does not translate.
+- [x] The upper stands had no crowd: the billboards' rectangles come from a compute program whose texture handle is
+      in a uniform register (`TEX.URC`, now translated), and their camera block from a view of a buffer that the engine
+      makes by patching the NVNbuffer's offset field, at the NVN2 driver's +0x18 and not where the runtime had it
+      ([research.md](research.md#the-crowd-in-the-stands-27112026)).
 - [ ] One frame of the main menu's transition into Historia is solid blue.
 - [ ] A cutscene of Historia's intro stayed half-way through a cross-fade between two shots for 20 s in one run.
 - [x] The grass is speckled with black: an EXIT's own predicate operand was dropped, so the lanes under the

@@ -173,7 +173,7 @@ with tessellation: an indirect draw of patches into the G-buffer, VS, TCS (quad 
 per-patch attributes, two texture samples), TES, a full geometry program (528 instructions, 11 texture samples, a
 4-vertex triangle strip out) and FS: a quad per tessellated point, most likely the grass's blades. The two programs
 that do not translate are that geometry program and a compute program whose texture handle comes from a uniform
-register (`tex_scr_urc_`).
+register (`tex_scr_urc_`; translated now, see "The crowd in the stands").
 
 ### Tessellation (27/11/2026)
 
@@ -202,6 +202,34 @@ order; NVN's patch size is recorded (OP_PATCH_SIZE). Each stage's gl_in block is
 block (vk_spirv_patch.c spirv_gs_adapt, inputs only): the vertex stage's ClipDistance and CullDistance for the TCS, none
 for the TES and the geometry stage, whose blocks the translator writes without them. Vulkan validation passes on the
 match (2044 of 2044 draws).
+
+### The crowd in the stands (27/11/2026)
+
+The match's upper stands were empty: only the low stand beside the court, a mesh, had spectators. The rest are
+billboards, 35 instanced draws of quads a frame (vertex program reading a 16-byte record per instance and a camera
+block at c13). Two faults hid them, one after the other.
+
+**The rectangles.** Each billboard's quad is the visible rectangle of its impostor (u,v min and max), which a compute
+program writes before the draws: one workgroup per impostor samples the impostor's texture at mip 1 and reduces the
+texels with alpha to a rectangle. Its texture handle is not at a fixed c-bank offset but in a uniform register
+(`TEX.URC`), read by a ULDC from c0 at a dynamic address: the program's packed table of bound handles (runtime
+gfx_shader_refl.c cs_res), slot gl_WorkGroupID.x. The translator now keeps where such a word came from (mem.py uldc,
+`uaddr<n>`) and turns the TEX into an element of an array of the table's textures, reflected as one binding of that
+many (tex.py tex_dyn). The same program needed ULEA with a carry out (alu.py ulea), the low word of the record's
+64-bit address. Without them the records stayed zero and every quad collapsed to a point.
+
+**The camera.** With sane rectangles (0.30, 0.05 to 0.70, 0.70) the billboards still drew a few hundred pixels in one
+corner: their c13 block held a 512x512 orthographic matrix and an identity view, and its contents changed between
+submissions and within one (2D at 1280x720, 64x64 icons, the impostors' atlas). Every pass bound the same address for
+c13. The engine binds that block from a view of a 1 MiB uniform ring (basic f_70020562d0 asks nvnBufferGetAddress for
+it), and it makes the views without the API: it copies the ring's NVNbuffer and adds the view's offset to the field at
++0x18. The NVN2 driver's own procs (the sdk shared by the base game and update 327680, build id 32a9ac14:
+BufferBuilderSetStorage sdk+0x5c2c90, BufferInitialize sdk+0x5c2ce0, BufferGetAddress sdk+0x5c2da0; found through its
+proc table, the name pool at sdk+0xb9a5aa and the pointers at sdk+0xe056e0) keep the device at +0x8, the pool at +0x10,
+the offset at +0x18 and the size at +0x20. The runtime had pool, offset and size at +0x8, +0x10 and +0x18, so the copies
+grew in size and kept the ring's base address. With the driver's layout (runtime nvn_api.h buf_t, buf_builder_t) every
+view has its own block and the stands fill. mkw-recomp shares the old layout; whether MKW makes views the same way is
+not checked.
 
 ### Open questions
 
