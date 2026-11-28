@@ -26,6 +26,9 @@
 // A line "<node>+<ticks> ..." waits for a phase of the game instead (MKW_SEQ_WATCH=1, seqwatch.c): it lands <ticks>
 // after the node's first start, so a press in a menu does not depend on how long the menus before it took (turbo, loads).
 // A line that starts with "p<N> " (N 1-8) presses for player N (input_poll_player); without it, for player 1.
+// A plain line may end in "every <period> until <frame>" (mtf-recomp): the press again every <period> ticks up to <frame>.
+// Mario Tennis Fever's serve is two presses (the toss, the hit while the ball is up) whenever the player serves, which a
+// script cannot time from outside: a pair every few seconds serves each time and falls back into step after a miss.
 typedef struct {
     uint64_t at, hold;
     int bit, stick, timed, player;
@@ -138,6 +141,53 @@ static void script_load_quick(const char *mode) {
     rt_log("input: MKW_QUICK_RACE=%s, %d presses by phase", mode, script_n);
 }
 
+// One script file's lines (script_load). A line "include <file>" (mtf-recomp) reads another script there, its path
+// relative to this file's folder: a script that goes on from another's end (tools/run/scripts/matches.txt plays on from
+// match.txt) need not copy its lines.
+static void script_load_file(const char *path, int depth) {
+    FILE *f = fopen(path, "r");
+    if (!f) { rt_log("input: cannot open MKW_INPUT_SCRIPT %s", path); return; }
+    char line[256];
+    int ln = 0;
+    ScriptEv e;
+    while (fgets(line, sizeof line, f)) {
+        char inc[256];
+        if (sscanf(line, " include %255s", inc) == 1) {
+            ++ln;
+            if (depth >= 8) { rt_log("input: %s line %d: includes nested too deep", path, ln); continue; }
+            char full[1024];
+            const char *slash = strrchr(path, '/');
+            if (inc[0] == '/' || !slash) snprintf(full, sizeof full, "%s", inc);
+            else snprintf(full, sizeof full, "%.*s/%s", (int)(slash - path), path, inc);
+            script_load_file(full, depth + 1);
+            continue;
+        }
+        unsigned long long every = 0, until = 0;
+        char *h = strchr(line, '#'), *rep = strstr(line, " every ");
+        if (rep && (!h || rep < h)) {
+            if (sscanf(rep, " every %llu until %llu", &every, &until) != 2 || !every) {
+                rt_log("input: %s line %d: \"every\" needs <period> until <frame>", path, ln + 1);
+                ++ln;
+                continue;
+            }
+            *rep = 0;
+        }
+        if (script_parse(line, ++ln, &e) <= 0) continue;
+        if (every && (e.timed || e.node[0])) {
+            rt_log("input: %s line %d: \"every\" on a timed or phase line, taken once", path, ln);
+            every = 0;
+        }
+        script_add(&e);
+        script_mixed |= e.timed;
+        for (uint64_t at = e.at + every; every && at <= until; at += every) {
+            ScriptEv r = e;
+            r.at = at;
+            script_add(&r);
+        }
+    }
+    fclose(f);
+}
+
 static void script_load(void) {
     script_state = 1;
     const char *path = cfg_get("MKW_INPUT_SCRIPT"), *quick = cfg_value("MKW_QUICK_RACE");
@@ -146,17 +196,7 @@ static void script_load(void) {
         return;
     }
     if (!path || !*path) return;
-    FILE *f = fopen(path, "r");
-    if (!f) { rt_log("input: cannot open MKW_INPUT_SCRIPT %s", path); return; }
-    char line[256];
-    int ln = 0;
-    ScriptEv e;
-    while (fgets(line, sizeof line, f)) {
-        if (script_parse(line, ++ln, &e) <= 0) continue;
-        script_add(&e);
-        script_mixed |= e.timed;
-    }
-    fclose(f);
+    script_load_file(path, 0);
     rt_log("input: script %s, %d events", path, script_n);
 }
 
